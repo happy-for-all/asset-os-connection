@@ -82,8 +82,11 @@ def fetch_os_data():
                 price = log.get("price", 0)
                 reason = log.get("reason", "")
                 diff = log.get("diff_price", 0)
-                recent_trades_list.append(f"{t} / 価格:{price}円 / 判定:{reason} / 損益:{diff}円")
-            recent_trades_str = "\n".join(recent_trades_list) if recent_trades_list else "データなし"
+            # 直近5件の取引履歴を整形（改行をスペースに変換してJSON汚染を防ぐ）
+                recent_trades_list.append(
+                    f"{t} / 価格:{price}円 / 判定:{reason.replace(chr(10), ' ')} / 損益:{diff}円"
+                )
+            recent_trades_str = " | ".join(recent_trades_list) if recent_trades_list else "データなし"
 
             # シャドーAIレポートの取得
             shadow_logs = data.get("shadow_logs", [])
@@ -94,7 +97,7 @@ def fetch_os_data():
                 s_win = "勝" if s.get("win_loss") else "敗"
                 s_exit = s.get("exit_type", "")
                 shadow_summary_list.append(f"{s_type}: {s_win} / 損益率:{s_profit}% / 決済:{s_exit}")
-            shadow_report_str = "\n".join(shadow_summary_list) if shadow_summary_list else "データなし"
+            shadow_report_str = " | ".join(shadow_summary_list) if shadow_summary_list else "データなし"
 
             print(f"📊 OS実績集計完了 ➔ Regime: {regime} / PF: {pf} / Profit: {total_profit_str}円 / WinRate: {win_rate_str}% / Trades: {total_trades_str}回 / MaxDD: {max_dd_str}%")
             return regime, pf, action, total_profit_str, win_rate_str, total_trades_str, max_dd_str, recent_trades_str, shadow_report_str

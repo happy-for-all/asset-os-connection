@@ -32,11 +32,10 @@ jobs:
 
       - name: Cloudflare製動的ルーティングのための準備 (distフォルダ化)
         run: |
-          # デプロイ用のクリーンなフォルダを作成
-          mkdir -p dist
-          # 生成された最新のindex.htmlだけをコピー（過去ログは一切残さない究極の節約術）
-          cp index.html dist/
-
+          # CFが探しに行けるように、URLと同じ名前のフォルダを作る
+          mkdir -p dist/asset-os-connection
+          # 生成された最新のindex.htmlをその中に入れる
+          cp index.html dist/asset-os-connection/
       - name: Cloudflare Workers へ安全にデプロイ
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

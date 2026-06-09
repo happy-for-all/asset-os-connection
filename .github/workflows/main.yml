@@ -9,7 +9,7 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: write     # 過去10件の記事データをキャッシュ保存(Commit)するために書き込み権限を付与
+      contents: write     # 過去のキャッシュデータをGitHubリポジトリへ安全に自動コミットするため
     
     steps:
       - name: リポジトリをチェックアウト
@@ -41,14 +41,10 @@ jobs:
 
       - name: Cloudflare製動的ルーティングのための準備 (distフォルダ化)
         run: |
-          # CFが探しに行けるように、URLと同じ名前のフォルダを作る
+          # CFが探しに行けるように、URLと同じ名前のフォルダを作り、生成された最新のindex.htmlだけをその中に入れる
           mkdir -p dist/asset-os-connection
-          # 生成された最新のindex.htmlをその中に入れる
           cp index.html dist/asset-os-connection/
-          # 過去の個別記事HTMLもすべて同じ構造の配下へ隔離コピーする
-          cp -r dist/asset-os-connection/articles dist/asset-os-connection/ || true
-          # 🆕 生成された電子書籍(books)も、同じURL階層でCFにアップロードする
-          cp -r dist/asset-os-connection/books dist/asset-os-connection/ || true
+          # 過去の個別記事HTMLおよび書籍HTMLはすでにPython側で直接格納済みのため不要なコピー処理はすべて排除
 
       - name: Cloudflare Workers へ安全にデプロイ
         env:

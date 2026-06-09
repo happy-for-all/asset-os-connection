@@ -1,1 +1,47 @@
+name: Global Media OS Builder
 
+on:
+  schedule:
+    - cron: '0 18 * * *'  # 毎日 日本時間 深夜3時に自動実行
+  workflow_dispatch:      # 手動実行ボタン
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Pythonのセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 必要なパッケージのインストール
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-genai
+
+      - name: メディアポータルの自動生成 (AI執筆)
+        env:
+          GEMINI_API_KEY_MEDIA: ${{ secrets.GEMINI_API_KEY_MEDIA }}
+        run: python build_portal.py
+
+      - name: Cloudflare製動的ルーティングのための準備 (distフォルダ化)
+        run: |
+          # デプロイ用のクリーンなフォルダを作成
+          mkdir -p dist
+          # 生成された最新のindex.htmlだけをコピー（過去ログは一切残さない究極の節約術）
+          cp index.html dist/
+
+      - name: Cloudflare Workers へ安全にデプロイ
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          # ユーザーの用意した wrangler.json を使いつつ、dist フォルダの中身(assets)としてデプロイするよう動的修正
+          cat wrangler.json | jq '. + {assets: {"directory": "./dist"}}' > wrangler_temp.json
+          mv wrangler_temp.json wrangler.json
+          npx wrangler deploy

@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Frontier Market | Global Asset Research</title>
-
-<meta name="robots" content="noindex, nofollow">
-    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
     
+    <!-- 🛡️ 初期段階のGoogleペナルティを完璧に防ぐシールド -->
+    <meta name="robots" content="noindex, nofollow">
+
     <style>
         :root {
             --bg-color: #0d1117;
@@ -124,15 +124,15 @@
             <div class="os-data-grid">
                 <div class="data-card">
                     <div class="data-label">Market Regime</div>
-                    <div class="data-value" id="os-regime">Loading...</div>
+                    <div class="data-value" style="color: #58a6ff;">{{OS_REGIME}}</div>
                 </div>
                 <div class="data-card">
                     <div class="data-label">System PF</div>
-                    <div class="data-value" id="os-pf" style="color: #56d364;">Loading...</div>
+                    <div class="data-value" style="color: #56d364;">{{OS_PF}}</div>
                 </div>
                 <div class="data-card">
                     <div class="data-label">Action Status</div>
-                    <div class="data-value" id="os-action" style="font-size: 0.9rem;">Loading...</div>
+                    <div class="data-value" style="font-size: 0.9rem;">{{OS_ACTION}}</div>
                 </div>
             </div>
         </section>
@@ -155,42 +155,6 @@
                 el.classList.add('active');
             });
         }
-
-        // 資産OSからの安全なデータ取得（Read-Only Fetch）
-        async function fetchOSData() {
-            try {
-                // キャッシュを避けるためにタイムスタンプを付与
-                const res = await fetch('https://asset.cocoro.workers.dev/trade_log.json?t=' + new Date().getTime());
-                if (!res.ok) throw new Error("Network error");
-                const data = await res.json();
-                
-                // レジームの取得
-                const regime = data.system_health?.current_regime || 'Unknown';
-                document.getElementById('os-regime').innerText = regime;
-                
-                // PFの取得
-                const pf = data.system_stats?.recent_pf || '-';
-                document.getElementById('os-pf').innerText = pf;
-
-                // 直近のアクション取得
-                if (data.trade_logs && data.trade_logs.length > 0) {
-                    const lastLog = data.trade_logs[data.trade_logs.length - 1];
-                    const reason = lastLog.reason || 'Standby';
-                    // 長すぎる場合は省略
-                    document.getElementById('os-action').innerText = reason.length > 15 ? reason.substring(0, 15) + '...' : reason;
-                } else {
-                    document.getElementById('os-action').innerText = 'Standby';
-                }
-            } catch (error) {
-                console.log("OSデータ取得エラー (CORS等でブロックされた場合は仕様通りです)", error);
-                document.getElementById('os-regime').innerText = 'Protected';
-                document.getElementById('os-pf').innerText = 'Protected';
-                document.getElementById('os-action').innerText = 'Auto-Trading Active';
-            }
-        }
-        
-        // ページ読み込み時にフェッチ実行
-        fetchOSData();
     </script>
 </body>
 </html>

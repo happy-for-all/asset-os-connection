@@ -10,7 +10,7 @@ from google.genai import types
 JST = timezone(timedelta(hours=9))
 DATA_DIR = "data"
 ARTICLES_DIR = "dist/asset-os-connection/articles"
-MAX_HISTORY_LIMIT = 10  # 蓄積する最大記事数。これを超えたら古い順に自動削除（1GBを絶対に圧迫しないデトックス設計）
+MAX_HISTORY_LIMIT = 10  # 蓄積する最大記事数。これを超えたら古い順に自動削除（1GBの容量パンクを完全防止）
 
 def fetch_os_data():
     """資産OSのtrade_log.jsonをサーバーサイドから安全にFetch（CORS制限なし）"""
@@ -88,24 +88,40 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
     ・システムPF（プロフィットファクター）: {os_pf}
     ・現在の行動ステータス: {os_action}
 
-    【執筆の絶対ルール】
-    ・日本語ブログのタイトルには「思わずクリックして読みたくなる、具体的で疑問形を含んだ高CTRなタイトル」を付けてください。
-    ・説明には必ず「たとえば〜」から始まる誰もが膝を打つような比喩（例え話）を深く記述し、専門用語は完全に噛み砕いてください。
-    ・まごころ資産OSのデータ（本日のレジームやPF値）にコラム内で必ず触れ、「だから当社の資産OSは今、このような判断（静観または慎重な押し目狙いなど）を論理的に行っている」という独自の一次情報を読者にわかりやすく解説してください。
-    ・ブログ記事の末尾には、以下の免責事項と自然なアフィリエイト誘導文（検証環境の再現を前提とした自然な文脈）を必ず添えてください：
-      「※本分析はAIと当社のクオンツデータに基づいていますが、投資の最終判断は自己責任でお願いいたします。
-      👉 <a href="【あなたのアフィリエイトURL】" target="_blank" style="color:#58a6ff; font-weight:bold;">検証に使用している国内最大手 bitFlyer 口座開設（無料）はこちら</a>」
+    【執筆の絶対ルール（デグレ・低価値判定の完全防止）】
+    1. 【テーマの棲み分け（重複回避）】
+       ・「ja_analysis/en_analysis（クオンツ分析）」には、最新ニュース（{news_text}）の内容は絶対に書かないでください。
+         ここは「純粋に本日の資産OSデータ（レジーム、PF値、売買判断）から読み取れるテクニカルな市場動向と運用戦略の解説」に特化してください。
+       ・「ja_blog_html/en_blog_html（ブログコラム）」にのみ、最新ニュースの具体的な中身（論争や出来事など）を比喩を交えて執筆してください。
+         これにより、前半と後半での内容の重複を完全にゼロにし、読者を飽きさせないクリーンな構成にします。
+
+    2. 【固有名詞の正確な保護（信頼性の死守）】
+       ・文章中に登場するすべての固有名詞（例：MicroStrategy、Ark Invest、Bitcoin、Ethereum、Sora、xAI、マイケル・セイラーなど）は、
+         勝手に省略したりスペルを変えたりせず（例：「MicroStrategy」を「Strategy」、「Ark Invest」を「Arca」とする等の中途半端な省略は厳禁）、
+         正確な正式名称または日本で正しく通用する一般的表記で完璧に記述してください。
+
+    3. 【断定表現の抑制（金融YMYL対策の徹底）】
+       ・投資や利確に関する絶対的な断定表現や、「確実に利益が積み上げられる優秀なシステム」「勝てる」といった誇大広告に聞こえる不実表示は完全に排除してください。
+       ・代わりに、「客観的なデータに基づいて感情を徹底排除した冷静な判断プロセス」「中長期的な資産防衛に主眼を置いた堅実な稼働設計」「リスク許容度を緻密に管理する論理的な判断」など、
+         控えめで知的、かつ統計的な事実に基づく信頼性の極めて高いコラムを徹底してください。
+
+    4. 【コラムの構成】
+       ・日本語ブログのタイトルには「読者が思わずクリックして深く読みたくなる、具体的で疑問形を含んだ高CTRなタイトル」を付けてください。
+       ・説明には必ず「たとえば〜」から始まる誰もが膝を打つような比喩（例え話）を深く掘り下げて記述し、専門用語は完全に噛み砕いてください。
+       ・ブログコラムの末尾には、以下の免責事項と自然なアフィリエイト誘導文（検証環境の再現を前提とした自然な文脈）を必ず添えてください：
+         「※本分析はAIと当社のクオンツデータに基づいていますが、投資の最終判断は自己責任でお願いいたします。
+         👉 <a href="【あなたのアフィリエイトURL】" target="_blank" style="color:#58a6ff; font-weight:bold;">検証に使用している国内最大手 bitFlyer 口座開設（無料）はこちら</a>」
 
     【出力形式（厳格なJSON形式のみ）】
     ・マークダウンの```jsonや```などは絶対に出力に含めないでください。
 
     {{
-        "ja_analysis": "<p>今週の市場動向を...当社のシステム判定は...</p>",
-        "en_analysis": "<p>This week's analysis... Our system indicates...</p>",
+        "ja_analysis": "<p>本日の資産OSのデータからは...</p>",
+        "en_analysis": "<p>Based on today's Magokoro OS metrics...</p>",
         "ja_blog_title": "【高CTRタイトル】...",
         "en_blog_title": "...",
-        "ja_blog_html": "<p>読者の皆さん、こんにちは。編集長のcocoroです。本日は...</p>",
-        "en_blog_html": "<p>Hello readers, cocoro here. Today we discuss...</p>"
+        "ja_blog_html": "<p>読者の皆さん、こんにちは。編集長のcocoroです。本日ニュースとなった出来事は...</p>",
+        "en_blog_html": "<p>Hello readers, cocoro here. Today's news reveals...</p>"
     }}
     """
 
@@ -151,7 +167,7 @@ def main():
 
     ai_data = generate_ai_content(news_text, os_regime, os_pf, os_action)
     
-    # クラッシュ完全防止機能（AIがダウンしていても仮画面を作ってデプロイを止めない）
+    # クラッシュ完全防止機能（AIがダウンしていても仮画面を作ってデプロブを止めない）
     if not ai_data:
         print("⚠️ AIデータの生成に失敗しました。安全なデフォルトデータで代用し、システムを止めずに進行します。")
         ai_data = {
@@ -163,7 +179,7 @@ def main():
             "en_blog_html": "<p>Due to temporary high demand on Google AI servers, the latest blog post is being prepared. It will automatically recover within a few hours.</p>"
         }
 
-    # 👑 最新記事をJSON履歴に保存する
+    # 最新記事をJSON履歴に保存する
     timestamp_slug = datetime.now(JST).strftime("%Y%m%d-%H%M%S")
     new_article_file = os.path.join(DATA_DIR, f"article-{timestamp_slug}.json")
     
@@ -184,7 +200,7 @@ def main():
     with open(new_article_file, "w", encoding="utf-8") as f:
         json.dump(article_record, f, ensure_ascii=False, indent=2)
 
-    # 👑 ローテーション機能（10記事を超えたら古い順に自動削除：1GBの容量パンクを完全防止）
+    # ローテーション機能（10記事を超えたら古い順に自動削除：1GBの容量パンクを完全防止）
     all_json_files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("article-") and f.endswith(".json")], reverse=True)
     if len(all_json_files) > MAX_HISTORY_LIMIT:
         print(f"🗑️ 履歴制限({MAX_HISTORY_LIMIT}件)を超過したため、古い記事を自動パージします。")
@@ -199,7 +215,7 @@ def main():
             if os.path.exists(html_path):
                 os.remove(html_path)
 
-    # 👑 過去ログからアーカイブ記事一覧のHTMLをビルドする
+    # 過去ログからアーカイブ記事一覧のHTMLをビルドする
     active_json_files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("article-") and f.endswith(".json")], reverse=True)
     
     ja_archive_html = ""
@@ -246,7 +262,7 @@ def main():
         print(f"❌ template.html が見つかりません: {e}")
         return
 
-    # 👑 ① すべての個別記事（過去記事）を template.html 1枚から静的ビルド(SSG)してarticles/に書き出す
+    # ① すべての個別記事（過去記事）を template.html 1枚から静的ビルド(SSG)してarticles/に書き出す
     for j_file in active_json_files:
         with open(os.path.join(DATA_DIR, j_file), "r", encoding="utf-8") as f:
             art = json.load(f)
@@ -267,7 +283,7 @@ def main():
         page_html = page_html.replace("{{OS_PF}}", art["os_pf"])
         page_html = page_html.replace("{{OS_ACTION}}", art["os_action"])
         
-        # 個別記事ページにはアーカイブ一覧は自分自身だけあれば良い、または同じリストを入れる
+        # 個別記事ページにはアーカイブ一覧
         page_html = page_html.replace("{{JA_ARCHIVE_LIST}}", ja_archive_html)
         page_html = page_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
         
@@ -275,7 +291,7 @@ def main():
         with open(os.path.join(ARTICLES_DIR, f"{a_slug}.html"), "w", encoding="utf-8") as f:
             f.write(page_html)
 
-    # 👑 ② 最新コラムを載せた index.html（トップページ）のビルド
+    # ② 最新コラムを載せた index.html（トップページ）のビルド
     latest_art = article_record  # 今回生成した最新記事
     
     index_html = template_content

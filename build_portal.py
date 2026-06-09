@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import urllib.request
@@ -10,7 +11,9 @@ from google.genai import types
 JST = timezone(timedelta(hours=9))
 DATA_DIR = "data"
 ARTICLES_DIR = "dist/asset-os-connection/articles"
-MAX_HISTORY_LIMIT = 10  # 蓄積する最大記事数。これを超えたら古い順に自動削除（1GBの容量パンクを完全防止）
+BOOKS_DIR = "dist/asset-os-connection/books"
+MAX_HISTORY_LIMIT = 10   # 容量パンク防止用の記事ローテーション上限
+MAX_BOOKS_LIMIT = 3      # 保存する電子書籍の最大数
 
 def fetch_os_data():
     """資産OSのtrade_log.jsonをサーバーサイドから安全にFetch（CORS制限なし）"""
@@ -88,21 +91,20 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
     ・システムPF（プロフィットファクター）: {os_pf}
     ・現在の行動ステータス: {os_action}
 
-    【執筆の絶対ルール（デグレ・低価値判定の完全防止）】
+    【執筆の絶対ルール】
     1. 【テーマの棲み分け（重複回避）】
        ・「ja_analysis/en_analysis（クオンツ分析）」には、最新ニュース（{news_text}）の内容は絶対に書かないでください。
          ここは「純粋に本日の資産OSデータ（レジーム、PF値、売買判断）から読み取れるテクニカルな市場動向と運用戦略の解説」に特化してください。
        ・「ja_blog_html/en_blog_html（ブログコラム）」にのみ、最新ニュースの具体的な中身（論争や出来事など）を比喩を交えて執筆してください。
          これにより、前半と後半での内容の重複を完全にゼロにし、読者を飽きさせないクリーンな構成にします。
 
-    2. 【固有名詞の正確な保護（信頼性の死守）】
+    2. 【固有名詞の正確な保護】
        ・文章中に登場するすべての固有名詞（例：MicroStrategy、Ark Invest、Bitcoin、Ethereum、Sora、xAI、マイケル・セイラーなど）は、
-         勝手に省略したりスペルを変えたりせず（例：「MicroStrategy」を「Strategy」、「Ark Invest」を「Arca」とする等の中途半端な省略は厳禁）、
-         正確な正式名称または日本で正しく通用する一般的表記で完璧に記述してください。
+         勝手に省略したりスペルを変えたりせず、正確な正式名称または日本で正しく通用する一般的表記で完璧に記述してください。
 
     3. 【断定表現の抑制（金融YMYL対策の徹底）】
        ・投資や利確に関する絶対的な断定表現や、「確実に利益が積み上げられる優秀なシステム」「勝てる」といった誇大広告に聞こえる不実表示は完全に排除してください。
-       ・代わりに、「客観的なデータに基づいて感情を徹底排除した冷静な判断プロセス」「中長期的な資産防衛に主眼を置いた堅実な稼働設計」「リスク許容度を緻密に管理する論理的な判断」など、
+       ・代わりに、「客観的なデータに基づいて感情を徹底排除した冷静な判断プロセス」「中長期的な資産防衛に主眼を置いた堅実な稼働設計」など、
          控えめで知的、かつ統計的な事実に基づく信頼性の極めて高いコラムを徹底してください。
 
     4. 【コラムの構成】
@@ -125,7 +127,7 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
     }}
     """
 
-    # 🛡️ 503エラー混雑を突破するための、自動切り替え ＆ 指数バックオフ（最大5回リトライ）
+    # 🛡️ 混雑をすり抜けるための、自動切り替え ＆ 指数バックオフ（最大5回リトライ）
     models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
     
     for model_name in models_to_try:
@@ -141,11 +143,17 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
                         temperature=0.7
                     )
                 )
-                return json.loads(response.text.strip())
+                
+                # 👑 デグレ徹底修復：Geminiの出力から飾り枠「```json ... ```」を取り除く安全ガード
+                raw_text = response.text.strip()
+                match = re.search(r"(\{.*\})", raw_text, re.DOTALL)
+                clean_text = match.group(1) if match else raw_text.replace("```json", "").replace("```", "")
+                
+                return json.loads(clean_text.strip())
             except Exception as e:
                 print(f"⚠️ {model_name} エラー (試行 {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) * 10  # 10秒, 20秒... としっかり待機して混雑をすり抜ける
+                    wait_time = (2 ** attempt) * 10
                     print(f"⏳ Googleサーバー混雑のため、{wait_time}秒後に再トライします...")
                     time.sleep(wait_time)
                 else:
@@ -154,10 +162,61 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
     print("❌ すべてのモデルで生成に失敗しました。")
     return None
 
+def generate_weekly_book(materials_text, os_regime, os_pf):
+    """【2号店機能移植】蓄積されたニュースと資産OSデータから、1万字規模の日英電子書籍を自動執筆"""
+    api_key = os.environ.get("GEMINI_API_KEY_MEDIA")
+    if not api_key:
+        return None
+
+    client = genai.Client(api_key=api_key)
+    
+    prompt = f"""
+    あなたは、世界経済・株式投資・クオンツ運用のプロフェッショナルであり、読者をワクワクさせる優れたジャーナリストです。
+    提供された【直近のニュースと資産データ】を美しく紡ぎ合わせ、日本語と英語の両方で読める、
+    1万文字規模の圧倒的に分かりやすくて深い、投資家のバイブルとなる「世界経済トレンド完全解剖書（日英併記プチ書籍）」を執筆してください。
+
+    【直近のニュースと資産データ】
+    ・まごころ資産OSレジーム判定: {os_regime}
+    ・システムPF: {os_pf}
+    ・直近のマーケットデータ履歴:
+    {materials_text}
+
+    【執筆上の厳格ルール】
+    - 専門用語を絶対にそのまま放置せず、必ず誰もが膝を打つような「具体的な例え話」で完璧に噛み砕いてください。
+    - 出力は必ず以下のJSON形式のみとすること（マークダウン記号は絶対に入れないこと）。
+    - HTMLタグ（<h3>, <p>, <strong>, <blockquote>など）を適切に使用してレイアウトしてください。
+
+    {{
+        "ja_book_title": "2026年 最新号：世界経済トレンド完全解剖書",
+        "en_book_title": "2026 Edition: Weekly Global Trend Analysis",
+        "ja_book_html": "<h3>第1章：世界市場の潮流</h3><p>...</p><h3>第2章：クオンツ防衛と当社の判定</h3><p>...</p>",
+        "en_book_html": "<h3>Chapter 1: Global Market Dynamics</h3><p>...</p><h3>Chapter 2: Quant Defense Strategy</h3><p>...</p>"
+    }}
+    """
+    
+    try:
+        print("📚 AIに日英プチ書籍を執筆させています（1万字規模のビッグデータ錬成中）...")
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",  # 長文執筆が非常に得意で、混雑しにくい安定の1.5を特別採用
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.7
+            )
+        )
+        raw_text = response.text.strip()
+        match = re.search(r"(\{.*\})", raw_text, re.DOTALL)
+        clean_text = match.group(1) if match else raw_text.replace("```json", "").replace("```", "")
+        return json.loads(clean_text.strip())
+    except Exception as e:
+        print(f"⚠️ 電子書籍の執筆失敗: {e}")
+    return None
+
 def main():
     print("🚀 メディアOS: ポータルおよびアーカイブ自動生成を開始します...")
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(ARTICLES_DIR, exist_ok=True)
+    os.makedirs(BOOKS_DIR, exist_ok=True)
     
     # 資産OSデータのFetch
     os_regime, os_pf, os_action = fetch_os_data()
@@ -167,7 +226,7 @@ def main():
 
     ai_data = generate_ai_content(news_text, os_regime, os_pf, os_action)
     
-    # クラッシュ完全防止機能（AIがダウンしていても仮画面を作ってデプロブを止めない）
+    # クラッシュ完全防止機能
     if not ai_data:
         print("⚠️ AIデータの生成に失敗しました。安全なデフォルトデータで代用し、システムを止めずに進行します。")
         ai_data = {
@@ -200,16 +259,14 @@ def main():
     with open(new_article_file, "w", encoding="utf-8") as f:
         json.dump(article_record, f, ensure_ascii=False, indent=2)
 
-    # ローテーション機能（10記事を超えたら古い順に自動削除：1GBの容量パンクを完全防止）
+    # ローテーション機能（最大10件）
     all_json_files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("article-") and f.endswith(".json")], reverse=True)
     if len(all_json_files) > MAX_HISTORY_LIMIT:
         print(f"🗑️ 履歴制限({MAX_HISTORY_LIMIT}件)を超過したため、古い記事を自動パージします。")
         for old_file in all_json_files[MAX_HISTORY_LIMIT:]:
-            # データJSONの削除
             json_path = os.path.join(DATA_DIR, old_file)
             if os.path.exists(json_path):
                 os.remove(json_path)
-            # 個別記事HTMLの削除
             html_slug = old_file.replace(".json", "")
             html_path = os.path.join(ARTICLES_DIR, f"{html_slug}.html")
             if os.path.exists(html_path):
@@ -220,6 +277,7 @@ def main():
     
     ja_archive_html = ""
     en_archive_html = ""
+    combined_materials = []
     
     for j_file in active_json_files:
         with open(os.path.join(DATA_DIR, j_file), "r", encoding="utf-8") as f:
@@ -227,6 +285,8 @@ def main():
             
         a_slug = art["slug"]
         a_time = art["time"]
+        
+        combined_materials.append(f"【タイトル】: {art['ja_blog_title']}\n【分析要約】: {art['ja_analysis']}")
         
         # 日本語アーカイブカード
         ja_archive_html += f"""
@@ -254,6 +314,68 @@ def main():
         </div>
         """
 
+    # 👑 【電子書籍ビルド機能】5件以上の分析データが溜まったら、電子書籍を自動執筆
+    weekly_book_banner_html = ""
+    
+    if len(active_json_files) >= 5:
+        materials_text = "\n\n---\n\n".join(combined_materials[:5])
+        book_data = generate_weekly_book(materials_text, os_regime, os_pf)
+        
+        if book_data:
+            book_slug = f"weekly-market-book-{datetime.now(JST).strftime('%Y-%m-w%W')}"
+            
+            # 電子書籍アーカイブのローテーション（最大3冊保存、パンク絶対防止）
+            all_book_files = sorted([f for f in os.listdir(BOOKS_DIR) if f.startswith("weekly-market-book-") and f.endswith(".html")], reverse=True)
+            if len(all_book_files) > MAX_BOOKS_LIMIT:
+                print(f"🗑️ 電子書籍の履歴制限({MAX_BOOKS_LIMIT}冊)を超過したため、古い書籍をパージします。")
+                for old_book in all_book_files[MAX_BOOKS_LIMIT:]:
+                    ob_path = os.path.join(BOOKS_DIR, old_book)
+                    if os.path.exists(ob_path):
+                        os.remove(ob_path)
+            
+            # template.html の読み込み
+            with open("template.html", "r", encoding="utf-8") as f:
+                template_content = f.read()
+            
+            # 書籍HTMLのコンパイル
+            book_html = template_content
+            book_html = book_html.replace("{{UPDATE_TIME}}", datetime.now(JST).strftime("%Y-%m-%d"))
+            book_html = book_html.replace("{{JA_ANALYSIS}}", book_data["ja_book_html"])
+            book_html = book_html.replace("{{EN_ANALYSIS}}", book_data["en_book_html"])
+            book_html = book_html.replace("{{JA_BLOG_TITLE}}", book_data["ja_book_title"])
+            book_html = book_html.replace("{{EN_BLOG_TITLE}}", book_data["en_book_title"])
+            book_html = book_html.replace("{{JA_BLOG_HTML}}", "<p>※第1章および第2章より体系的な電子書籍コンテンツをお楽しみください。</p>")
+            book_html = book_html.replace("{{EN_BLOG_HTML}}", "<p>※Please enjoy the structured weekly book content in Chapter 1 & 2 above.</p>")
+            book_html = book_html.replace("{{OS_REGIME}}", os_regime)
+            book_html = book_html.replace("{{OS_PF}}", os_pf)
+            book_html = book_html.replace("{{OS_ACTION}}", "Published")
+            book_html = book_html.replace("{{JA_ARCHIVE_LIST}}", ja_archive_html)
+            book_html = book_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
+            book_html = book_html.replace("{{WEEKLY_BOOK_BANNER}}", "") # 書籍画面自身にはバナーを出さない
+            
+            with open(os.path.join(BOOKS_DIR, f"{book_slug}.html"), "w", encoding="utf-8") as f:
+                f.write(book_html)
+                
+            # トップページ用バナーHTMLの動的生成
+            weekly_book_banner_html = f"""
+            <section style="margin-bottom: 40px; background: linear-gradient(135deg, #0070f3, #3291ff); border: none; border-radius: 16px; padding: 30px; text-align: center; box-shadow: 0 8px 24px rgba(0, 112, 243, 0.25);">
+                <div class="lang-content ja active">
+                    <span style="background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 800; color: #fff;">🆕 AI WEEKLY BOOK 配信中</span>
+                    <h2 style="font-size: 1.6rem; font-weight: 900; margin: 15px 0 10px; color: #fff; border:none; padding:0;">{book_data['ja_book_title']}</h2>
+                    <p style="font-size: 0.95rem; color: rgba(255,255,255,0.9); max-width: 500px; margin: 0 auto 20px;">今週配信された資産データと相場分析をAIが統合し、一冊のストーリーにまとめあげたクオンツ投資解剖書です。</p>
+                    <a href="/asset-os-connection/books/{book_slug}.html" style="background: #fff; color: #0070f3; padding: 12px 24px; border-radius: 999px; font-weight: 800; text-decoration: none; display: inline-block;">電子書籍を読む（無料） &rarr;</a>
+                </div>
+                <div class="lang-content en">
+                    <span style="background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 800; color: #fff;">🆕 AI WEEKLY BOOK NOW ON SALE</span>
+                    <h2 style="font-size: 1.6rem; font-weight: 900; margin: 15px 0 10px; color: #fff; border:none; padding:0;">{book_data['en_book_title']}</h2>
+                    <p style="font-size: 0.95rem; color: rgba(255,255,255,0.9); max-width: 500px; margin: 0 auto 20px;">An AI-synthesized weekly book integrating Magokoro OS metrics and global market trends into a single structured report.</p>
+                    <a href="/asset-os-connection/books/{book_slug}.html" style="background: #fff; color: #0070f3; padding: 12px 24px; border-radius: 999px; font-weight: 800; text-decoration: none; display: inline-block;">Read Free Book &rarr;</a>
+                </div>
+            </section>
+            """
+    else:
+        print("📚 書籍生成はスキップされました（データベース内の記事が5件未満のため、データが十分に蓄積された時点で自動的に書籍化プロセスが始動します）。")
+
     # template.html の読み込み
     try:
         with open("template.html", "r", encoding="utf-8") as f:
@@ -277,17 +399,13 @@ def main():
         page_html = page_html.replace("{{EN_BLOG_TITLE}}", art["en_blog_title"])
         page_html = page_html.replace("{{JA_BLOG_HTML}}", art["ja_blog_html"])
         page_html = page_html.replace("{{EN_BLOG_HTML}}", art["en_blog_html"])
-        
-        # 資産OSデータ
         page_html = page_html.replace("{{OS_REGIME}}", art["os_regime"])
         page_html = page_html.replace("{{OS_PF}}", art["os_pf"])
         page_html = page_html.replace("{{OS_ACTION}}", art["os_action"])
-        
-        # 個別記事ページにはアーカイブ一覧
         page_html = page_html.replace("{{JA_ARCHIVE_LIST}}", ja_archive_html)
         page_html = page_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
+        page_html = page_html.replace("{{WEEKLY_BOOK_BANNER}}", weekly_book_banner_html) # 個別記事にも本バナーを表示
         
-        # 個別HTMLの出力
         with open(os.path.join(ARTICLES_DIR, f"{a_slug}.html"), "w", encoding="utf-8") as f:
             f.write(page_html)
 
@@ -302,15 +420,12 @@ def main():
     index_html = index_html.replace("{{EN_BLOG_TITLE}}", latest_art["en_blog_title"])
     index_html = index_html.replace("{{JA_BLOG_HTML}}", latest_art["ja_blog_html"])
     index_html = index_html.replace("{{EN_BLOG_HTML}}", latest_art["en_blog_html"])
-    
-    # 資産OSデータ
     index_html = index_html.replace("{{OS_REGIME}}", os_regime)
     index_html = index_html.replace("{{OS_PF}}", os_pf)
     index_html = index_html.replace("{{OS_ACTION}}", os_action)
-    
-    # アーカイブコラム一覧の動的差し込み
     index_html = index_html.replace("{{JA_ARCHIVE_LIST}}", ja_archive_html)
     index_html = index_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
+    index_html = index_html.replace("{{WEEKLY_BOOK_BANNER}}", weekly_book_banner_html)
 
     # index.html として書き出し
     with open("index.html", "w", encoding="utf-8") as f:

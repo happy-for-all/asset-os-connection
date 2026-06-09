@@ -9,7 +9,7 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write     # 過去10件の記事データをキャッシュ保存(Commit)するために書き込み権限を付与
     
     steps:
       - name: リポジトリをチェックアウト
@@ -25,10 +25,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install google-genai
 
-      - name: メディアポータルの自動生成 (AI執筆)
+      - name: メディアポータルの自動生成 (AI執筆 & 資産OSデータ融合)
         env:
           GEMINI_API_KEY_MEDIA: ${{ secrets.GEMINI_API_KEY_MEDIA }}
         run: python build_portal.py
+
+      - name: 過去10件のキャッシュデータをGitHubリポジトリへ安全に自動保存(Commit)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # data/ フォルダ内のJSONだけをキャッシュ保存（1回あたり数KBなので1GBを圧迫しません）
+          git add data/ || true
+          git diff --staged --quiet || git commit -m "🤖 Auto: キャッシュデータベースの自動更新"
+          git push || echo "⚠️ 保存競合が発生したためスキップし、デプロイを優先します。"
 
       - name: Cloudflare製動的ルーティングのための準備 (distフォルダ化)
         run: |
@@ -36,6 +45,9 @@ jobs:
           mkdir -p dist/asset-os-connection
           # 生成された最新のindex.htmlをその中に入れる
           cp index.html dist/asset-os-connection/
+          # 過去の個別記事HTMLもすべて同じ構造の配下へ隔離コピーする
+          cp -r dist/asset-os-connection/articles dist/asset-os-connection/ || true
+
       - name: Cloudflare Workers へ安全にデプロイ
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

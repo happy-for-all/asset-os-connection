@@ -14,7 +14,7 @@ DATA_DIR = "data"
 ARTICLES_DIR = "dist/asset-os-connection/articles"
 BOOKS_DIR = "dist/asset-os-connection/books"
 MAX_HISTORY_LIMIT = 10   # 容量パンク防止用の記事上限
-MAX_BOOKS_LIMIT = 3      # 保存する電子書籍の最大数
+MAX_BOOKS_LIMIT = 3      # 保存する電子書籍 of 最大数
 
 RSS_SOURCES = [
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
@@ -27,14 +27,17 @@ def strip_html(text):
     return re.sub(r'<[^>]+>', '', text)
 
 def fetch_os_data():
+    """資産OSのtrade_log.jsonをサーバーサイドから安全にFetchし、実績を動的にクオンツ集計"""
     url = "https://asset.cocoro.workers.dev/trade_log.json"
     try:
+        print("📡 資産OSのデータベースを安全にスキャン中...")
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read())
             regime = data.get("system_health", {}).get("current_regime", "Sideways")
             pf = str(data.get("system_stats", {}).get("recent_pf", "1.00"))
-            
+
+            # 直近のアクション取得
             action = "Standby"
             trade_logs = data.get("trade_logs", [])
             if trade_logs:
@@ -43,6 +46,7 @@ def fetch_os_data():
                 if len(action) > 15:
                     action = action[:15] + "..."
 
+            # 本番取引実績の完全集計
             system_stats = data.get("system_stats", {})
             try:
                 total_profit = float(system_stats.get("total_realized_profit", 0))
@@ -53,6 +57,7 @@ def fetch_os_data():
             realized_trades = [log.get("diff_price", 0) for log in trade_logs if log.get("diff_price", 0) != 0]
             total_trades = len(realized_trades)
             total_trades_str = str(total_trades)
+
             wins = [x for x in realized_trades if x > 0]
             win_rate = (len(wins) / total_trades * 100) if total_trades > 0 else 0.0
             win_rate_str = f"{win_rate:.1f}"
@@ -69,7 +74,7 @@ def fetch_os_data():
                         max_dd = dd
             max_dd_str = f"{max_dd * 100:.1f}"
 
-            # 👑 追加①：直近5件の取引履歴を人間が読める形式に整形
+            # 直近5件の取引履歴を整形
             recent_logs = trade_logs[-5:] if len(trade_logs) >= 5 else trade_logs
             recent_trades_list = []
             for log in recent_logs:
@@ -80,7 +85,7 @@ def fetch_os_data():
                 recent_trades_list.append(f"{t} / 価格:{price}円 / 判定:{reason} / 損益:{diff}円")
             recent_trades_str = "\n".join(recent_trades_list) if recent_trades_list else "データなし"
 
-            # 👑 追加②：シャドーAIレポートの取得
+            # シャドーAIレポートの取得
             shadow_logs = data.get("shadow_logs", [])
             shadow_summary_list = []
             for s in shadow_logs:
@@ -91,61 +96,13 @@ def fetch_os_data():
                 shadow_summary_list.append(f"{s_type}: {s_win} / 損益率:{s_profit}% / 決済:{s_exit}")
             shadow_report_str = "\n".join(shadow_summary_list) if shadow_summary_list else "データなし"
 
+            print(f"📊 OS実績集計完了 ➔ Regime: {regime} / PF: {pf} / Profit: {total_profit_str}円 / WinRate: {win_rate_str}% / Trades: {total_trades_str}回 / MaxDD: {max_dd_str}%")
             return regime, pf, action, total_profit_str, win_rate_str, total_trades_str, max_dd_str, recent_trades_str, shadow_report_str
 
     except Exception as e:
         print(f"⚠️ 資産OSデータの取得をフォールバック回避しました: {e}")
         print(traceback.format_exc())
     return "Active", "1.00", "Running", "0", "0.0", "0", "0.0", "データなし", "データなし"
-            
-            # 直近のアクション取得
-            action = "Standby"
-            trade_logs = data.get("trade_logs", [])
-            if trade_logs:
-                last_log = trade_logs[-1]
-                action = last_log.get("reason", "Standby")
-                if len(action) > 15:
-                    action = action[:15] + "..."
-            
-            # E-E-A-T対策。本番取引実績の完全集計処理
-            system_stats = data.get("system_stats", {})
-            
-            # 👑 改善：値が文字列や小数で返ってきた場合でも、確実に型変換してクラッシュ(TypeError)を防ぐ安全防衛
-            try:
-                total_profit = float(system_stats.get("total_realized_profit", 0))
-                total_profit_str = f"{total_profit:+,.0f}" if total_profit != 0 else "0"
-            except (TypeError, ValueError):
-                total_profit_str = "0"
-            
-            # 実トレードの抽出（損益が0以外の履歴を取引実績とみなして精緻化）
-            realized_trades = [log.get("diff_price", 0) for log in trade_logs if log.get("diff_price", 0) != 0]
-            total_trades = len(realized_trades)
-            total_trades_str = str(total_trades)
-            
-            # 勝率の計算
-            wins = [x for x in realized_trades if x > 0]
-            win_rate = (len(wins) / total_trades * 100) if total_trades > 0 else 0.0
-            win_rate_str = f"{win_rate:.1f}"
-            
-            # 最大ドローダウン（DD）の計算
-            balances = [log.get("balance", 0) for log in trade_logs if log.get("balance", 0) > 0]
-            max_dd = 0.0
-            if balances:
-                peak = balances[0]
-                for b in balances:
-                    if b > peak:
-                        peak = b
-                    dd = (peak - b) / peak if peak > 0 else 0.0
-                    if dd > max_dd:
-                        max_dd = dd
-            max_dd_str = f"{max_dd * 100:.1f}"
-            
-            print(f"📊 OS実績集計完了 ➔ Regime: {regime} / PF: {pf} / Total Profit: {total_profit_str}円 / Win Rate: {win_rate_str}% / Trades: {total_trades_str}回 / Max DD: {max_dd_str}%")
-            return regime, pf, action, total_profit_str, win_rate_str, total_trades_str, max_dd_str
-    except Exception as e:
-        print(f"⚠️ 資産OSデータの取得をフォールバック回避しました: {e}")
-        print(traceback.format_exc())
-    return "Active", "1.00", "Running", "0", "0.0", "0", "0.0"
 
 def os_regime_to_ja(regime):
     mapping = {
@@ -175,8 +132,10 @@ def fetch_crypto_news():
             print(f"⚠️ RSSフォールバック警告: {rss_url} → {e}")
     return "本日は大きなニュースの更新はありませんが、暗号資産市場は常に変動しています。"
 
-def generate_ai_content(news_text, os_regime, os_pf, os_action):
-    """まごころ資産OSのデータを踏まえて、世界に1つの超ハイクオリティ記事を生成する"""
+def generate_ai_content(news_text, os_regime, os_pf, os_action,
+                        os_total_profit, os_win_rate, os_total_trades,
+                        os_max_dd, recent_trades, shadow_report):
+    """まごころ資産OSのすべてのデータを完璧にマージし、世界に1つの超ハイクオリティ記事を生成する"""
     api_key = os.environ.get("GEMINI_API_KEY_MEDIA")
     if not api_key:
         print("APIキーが設定されていません。")
@@ -195,8 +154,7 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
     {news_text}
 
     【まごころ資産OSの本日のデータ】
-    【まごころ資産OSの本日のデータ】
-    ・レジーム: {os_regime}
+    ・レジーム: {os_regime} （日本語訳: {os_regime_ja}）
     ・PF: {os_pf}
     ・アクション: {os_action}
     ・通算損益: {os_total_profit}円
@@ -264,7 +222,6 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
                 
                 return json.loads(clean_text.strip())
             except Exception as e:
-                # AIが失敗した理由をトレースバックで詳細に出力
                 print(f"⚠️ {model_name} エラー (試行 {attempt + 1}): {e}")
                 print(traceback.format_exc())
                 if attempt < max_retries - 1:
@@ -350,7 +307,7 @@ def build_sitemap(active_json_files):
             
         sitemap_xml += f"  <url><loc>{base_url}/articles/{slug}.html</loc><lastmod>{lastmod}</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>\n"
     
-    # 👑 改善：生成された電子書籍（books/*.html）も自動巡回（スキャン）して、インデックスへ優先度0.9で動的自動登録
+    # 👑 改善：生成された電子書籍（books/*.html）も自動巡回して、インデックスへ優先度0.9で動的自動登録
     if os.path.exists(BOOKS_DIR):
         for book_file in os.listdir(BOOKS_DIR):
             if book_file.endswith(".html"):
@@ -369,13 +326,16 @@ def main():
     os.makedirs(ARTICLES_DIR, exist_ok=True)
     os.makedirs(BOOKS_DIR, exist_ok=True)
     
-    # 資産OSデータのFetch
+    # 👑 改善：fetch_os_dataから新設した直近履歴、シャドーレポート等すべての集計データを正確に受け取る
     os_regime, os_pf, os_action, os_total_profit, os_win_rate, os_total_trades, os_max_dd, recent_trades, shadow_report = fetch_os_data()
     news_text = fetch_crypto_news()
     print(f"📰 取得したニュース: {news_text[:50]}...")
 
     ai_data_success = True
-    ai_data = generate_ai_content(news_text, os_regime, os_pf, os_action)
+    # 👑 改善：generate_ai_contentへ集計した本番・シャドーデータをすべて引数として漏れなく引き渡す（デグレ完全排除）
+    ai_data = generate_ai_content(news_text, os_regime, os_pf, os_action,
+                                  os_total_profit, os_win_rate, os_total_trades,
+                                  os_max_dd, recent_trades, shadow_report)
     
     # 過去キャッシュの取得
     all_json_files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("article-") and f.endswith(".json")], reverse=True)
@@ -555,7 +515,7 @@ def main():
             book_html = book_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
             book_html = book_html.replace("{{WEEKLY_BOOK_BANNER}}", "") # 書籍画面自身にはバナーを出さない
             
-            # 書籍時点の実績データの置換
+            # 実績データの置換
             book_html = book_html.replace("{{OS_TOTAL_PROFIT}}", os_total_profit)
             book_html = book_html.replace("{{OS_WIN_RATE}}", os_win_rate)
             book_html = book_html.replace("{{OS_TOTAL_TRADES}}", os_total_trades)

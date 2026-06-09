@@ -47,6 +47,8 @@ jobs:
           cp index.html dist/asset-os-connection/
           # 過去の個別記事HTMLもすべて同じ構造の配下へ隔離コピーする
           cp -r dist/asset-os-connection/articles dist/asset-os-connection/ || true
+          # 🆕 生成された電子書籍(books)も、同じURL階層でCFにアップロードする
+          cp -r dist/asset-os-connection/books dist/asset-os-connection/ || true
 
       - name: Cloudflare Workers へ安全にデプロイ
         env:

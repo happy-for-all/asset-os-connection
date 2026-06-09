@@ -52,7 +52,7 @@ def fetch_crypto_news():
     return "本日は大きなニュースの更新はありませんが、暗号資産市場は常に変動しています。"
 
 def generate_ai_content(news_text):
-    """Geminiを使って日英のブログ記事と分析を同時生成する"""
+    """Geminiを使って日英のブログ記事と分析を同時生成する（モデル自動切替ダブルシールド搭載）"""
     api_key = os.environ.get("GEMINI_API_KEY_MEDIA")
     if not api_key:
         print("APIキーが設定されていません。")
@@ -78,33 +78,40 @@ def generate_ai_content(news_text):
         "en_analysis": "<p>This week's market...</p>",
         "ja_blog_title": "【高CTRタイトル】ビットコイン急騰？...",
         "en_blog_title": "Bitcoin Surges?...",
-        "ja_blog_html": "<p>読者の皆さん, こんにちは。...</p>",
+        "ja_blog_html": "<p>読者の皆さん、こんにちは。...</p>",
         "en_blog_html": "<p>Hello readers,...</p>"
     }}
     """
 
-    MAX_RETRIES = 3
-    for attempt in range(MAX_RETRIES):
-        try:
-            print(f"🤖 Geminiにリクエスト送信中... (試行 {attempt + 1}/{MAX_RETRIES})")
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.7
+    # 🛡️ 混雑をすり抜けるための、自動切り替えモデル配列
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    
+    for model_name in models_to_try:
+        MAX_RETRIES = 2
+        for attempt in range(MAX_RETRIES):
+            try:
+                print(f"🤖 Gemini ({model_name}) にリクエスト送信中... (試行 {attempt + 1}/{MAX_RETRIES})")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.7
+                    )
                 )
-            )
-            return json.loads(response.text.strip())
-        except Exception as e:
-            print(f"⚠️ AI生成エラー (試行 {attempt + 1}): {e}")
-            if attempt < MAX_RETRIES - 1:
-                wait_time = 2 ** attempt * 5
-                print(f"⏳ Googleサーバー混雑のため、{wait_time}秒後にリトライします...")
-                time.sleep(wait_time)
-            else:
-                print("❌ 最大リトライ回数に達しました。")
-                return None
+                # JSONとして正しくパースできたら完了
+                return json.loads(response.text.strip())
+            except Exception as e:
+                print(f"⚠️ {model_name} エラー (試行 {attempt + 1}): {e}")
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = 5
+                    print(f"⏳ {wait_time}秒後にリトライします...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"❌ {model_name} での生成を断念しました。")
+                    
+    print("❌ すべてのモデルで生成に失敗しました。")
+    return None
 
 def main():
     print("🚀 メディアOS: ポータル生成を開始します...")
@@ -147,7 +154,7 @@ def main():
     html_content = html_content.replace("{{JA_BLOG_HTML}}", ai_data.get("ja_blog_html", ""))
     html_content = html_content.replace("{{EN_BLOG_HTML}}", ai_data.get("en_blog_html", ""))
     
-    # 👑 資産OSデータの安全置換
+    # 資産OSデータの安全置換
     html_content = html_content.replace("{{OS_REGIME}}", os_regime)
     html_content = html_content.replace("{{OS_PF}}", os_pf)
     html_content = html_content.replace("{{OS_ACTION}}", os_action)

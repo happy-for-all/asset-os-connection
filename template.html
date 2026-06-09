@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -58,7 +59,7 @@
             --border: #30363d;
             --accent-glow: rgba(88, 166, 255, 0.15);
         }
-        body { margin: 0; padding: 0; font-family: 'Inter', 'Noto Sans JP', sans-serif; background-color: var(--bg-color); color: var(--text-main); line-height: 1.8; }
+        body { margin: 0; padding: 0; font-family: 'Inter', 'Noto Sans JP', sans-serif; background-color: var(--bg-color); color: var(--text-main); line-height: 1.8; transition: background-color 0.3s ease; }
         .container { max-width: 800px; margin: 0 auto; padding: 20px; }
         
         /* ヘッダーと日英切替スイッチ */
@@ -83,11 +84,11 @@
         .post-title { font-size: 2rem; font-weight: 900; line-height: 1.4; color: #fff; margin-bottom: 25px; letter-spacing: -0.5px; }
         .insight-box { background: rgba(88, 166, 255, 0.05); border-left: 4px solid var(--accent); padding: 20px; border-radius: 0 12px 12px 0; margin: 30px 0; font-style: italic; }
 
-        /* 資産OSリアルタイムデータ表示エリア */
-        .os-data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-top: 25px; }
+        /* 資産OS運用実績ダッシュボードエリア */
+        .os-data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 15px; margin-top: 25px; }
         .data-card { background: var(--bg-color); border: 1px solid var(--border); padding: 20px; border-radius: 10px; text-align: center; box-shadow: inset 0 2px 8px rgba(0,0,0,0.5); }
         .data-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
-        .data-value { font-size: 1.3rem; font-weight: 900; color: #fff; margin-top: 8px; }
+        .data-value { font-size: 1.25rem; font-weight: 900; color: #fff; margin-top: 8px; }
 
         /* アーカイブ記事グリッド */
         .articles-grid { display: grid; grid-template-columns: 1fr; gap: 20px; margin-top: 30px; }
@@ -115,8 +116,9 @@
         <header>
             <div class="logo"><a href="/asset-os-connection/" style="color:#fff; text-decoration:none;">AI Frontier <span>Market</span></a></div>
             <div class="lang-switch">
-                <button class="lang-btn active" onclick="switchLang('ja')">日本語</button>
-                <button class="lang-btn" onclick="switchLang('en')">English</button>
+                <!-- 👑 改善：eventを明示的に渡してFirefox/Safariでのバグを完全解消 -->
+                <button class="lang-btn active" onclick="switchLang('ja', event)">日本語</button>
+                <button class="lang-btn" onclick="switchLang('en', event)">English</button>
             </div>
         </header>
 
@@ -170,11 +172,11 @@
             </div>
         </section>
 
-        <!-- 3. まごころ資産OS リアルタイム接続セクション -->
+        <!-- 3. まごころ資産OS 実戦運用実績ダッシュボード -->
         <section>
-            <div class="lang-content ja active"><h2>🤖 まごころ資産OS リアルタイム観測</h2></div>
-            <div class="lang-content en"><h2>🤖 Magokoro Asset OS Real-time Radar</h2></div>
-            <p style="font-size:0.85rem; color:var(--text-muted); margin-top:-10px;">※本番OSのデータにサーバーサイドから安全にマージし、現在の稼働状況を反映しています。</p>
+            <div class="lang-content ja active"><h2>🏆 まごころ資産OS 実戦運用実績ダッシュボード</h2></div>
+            <div class="lang-content en"><h2>🏆 Magokoro Asset OS Live Performance Dashboard</h2></div>
+            <p style="font-size:0.85rem; color:var(--text-muted); margin-top:-10px;">※本番OSが書き出す生データをサーバーサイドで自動集計。ハッキングリスクを排除しつつ実績を完全公開しています。</p>
             
             <div class="os-data-grid">
                 <div class="data-card">
@@ -188,6 +190,26 @@
                 <div class="data-card">
                     <div class="data-label">Action Status</div>
                     <div class="data-value" style="font-size: 0.9rem;">{{OS_ACTION}}</div>
+                </div>
+            </div>
+
+            <!-- 👑 改善：実績の数値自動公開（Google E-E-A-Tを満たす信頼の防衛盾） -->
+            <div class="os-data-grid" style="margin-top:15px; border-top: 1px solid var(--border); padding-top:15px;">
+                <div class="data-card" style="border-color: rgba(86, 211, 100, 0.3);">
+                    <div class="data-label">通算実現損益 (JST)</div>
+                    <div class="data-value" style="color: #56d364;">{{OS_TOTAL_PROFIT}} 円</div>
+                </div>
+                <div class="data-card">
+                    <div class="data-label">通算取引回数</div>
+                    <div class="data-value">{{OS_TOTAL_TRADES}} 回</div>
+                </div>
+                <div class="data-card">
+                    <div class="data-label">期待勝率 (Win Rate)</div>
+                    <div class="data-value" style="color: #e3b341;">{{OS_WIN_RATE}} %</div>
+                </div>
+                <div class="data-card" style="border-color: rgba(248, 81, 73, 0.3);">
+                    <div class="data-label">最大ドローダウン</div>
+                    <div class="data-value" style="color: #ff7b72;">{{OS_MAX_DD}} %</div>
                 </div>
             </div>
         </section>
@@ -215,7 +237,7 @@
             </div>
         </section>
 
-        <!-- 👑 E-E-A-T対策：著者プロフィールセクションを公式埋め込み -->
+        <!-- E-E-A-T対策：著者プロフィールセクションを公式埋め込み -->
         <section id="about-cocoro" style="background: rgba(88, 166, 255, 0.02); border: 1px solid var(--border); border-radius: 16px; padding: 25px;">
             <div class="lang-content ja active">
                 <h3 style="margin-top:0; font-size:1.1rem; color:var(--accent);">🖋️ 編集長コラムニスト：cocoro</h3>
@@ -232,15 +254,20 @@
         </section>
 
         <footer style="text-align: center; margin-top: 50px; padding-bottom: 20px; color: var(--text-muted); font-size: 0.8rem;">
-            &copy; 2026 AI Frontier Market. Powered by Magokoro OS & Gemini 2.5
+            <p>&copy; 2026 AI Frontier Market. Powered by Magokoro OS & Gemini 2.5</p>
+            <p style="margin-top: 5px;">
+                <span class="lang-content ja active">🔍 <a href="#about-cocoro" style="color: var(--accent); text-decoration: none;">編集長cocoro（クオンツ運用コラムニスト）について</a></span>
+                <span class="lang-content en">🔍 <a href="#about-cocoro" style="color: var(--accent); text-decoration: none;">About Chief Editor cocoro</a></span>
+            </p>
         </footer>
     </div>
 
     <script>
         // 日英切り替えロジック
-        function switchLang(lang) {
+        function switchLang(lang, event) {
             document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
+            // 👑 改善：event.currentTarget で要素を完全に固定
+            event.currentTarget.classList.add('active');
             
             document.querySelectorAll('.lang-content').forEach(el => {
                 el.classList.remove('active');

@@ -27,15 +27,76 @@ def strip_html(text):
     return re.sub(r'<[^>]+>', '', text)
 
 def fetch_os_data():
-    """資産OSのtrade_log.jsonをサーバーサイドから安全にFetchし、実績（損益・勝率・DD）を動的にクオンツ集計"""
     url = "https://asset.cocoro.workers.dev/trade_log.json"
     try:
-        print("📡 資産OSのデータベースを安全にスキャン中...")
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read())
             regime = data.get("system_health", {}).get("current_regime", "Sideways")
             pf = str(data.get("system_stats", {}).get("recent_pf", "1.00"))
+            
+            action = "Standby"
+            trade_logs = data.get("trade_logs", [])
+            if trade_logs:
+                last_log = trade_logs[-1]
+                action = last_log.get("reason", "Standby")
+                if len(action) > 15:
+                    action = action[:15] + "..."
+
+            system_stats = data.get("system_stats", {})
+            try:
+                total_profit = float(system_stats.get("total_realized_profit", 0))
+                total_profit_str = f"{total_profit:+,.0f}" if total_profit != 0 else "0"
+            except (TypeError, ValueError):
+                total_profit_str = "0"
+
+            realized_trades = [log.get("diff_price", 0) for log in trade_logs if log.get("diff_price", 0) != 0]
+            total_trades = len(realized_trades)
+            total_trades_str = str(total_trades)
+            wins = [x for x in realized_trades if x > 0]
+            win_rate = (len(wins) / total_trades * 100) if total_trades > 0 else 0.0
+            win_rate_str = f"{win_rate:.1f}"
+
+            balances = [log.get("balance", 0) for log in trade_logs if log.get("balance", 0) > 0]
+            max_dd = 0.0
+            if balances:
+                peak = balances[0]
+                for b in balances:
+                    if b > peak:
+                        peak = b
+                    dd = (peak - b) / peak if peak > 0 else 0.0
+                    if dd > max_dd:
+                        max_dd = dd
+            max_dd_str = f"{max_dd * 100:.1f}"
+
+            # 👑 追加①：直近5件の取引履歴を人間が読める形式に整形
+            recent_logs = trade_logs[-5:] if len(trade_logs) >= 5 else trade_logs
+            recent_trades_list = []
+            for log in recent_logs:
+                t = log.get("time", "")
+                price = log.get("price", 0)
+                reason = log.get("reason", "")
+                diff = log.get("diff_price", 0)
+                recent_trades_list.append(f"{t} / 価格:{price}円 / 判定:{reason} / 損益:{diff}円")
+            recent_trades_str = "\n".join(recent_trades_list) if recent_trades_list else "データなし"
+
+            # 👑 追加②：シャドーAIレポートの取得
+            shadow_logs = data.get("shadow_logs", [])
+            shadow_summary_list = []
+            for s in shadow_logs:
+                s_type = s.get("shadow_type", "")
+                s_profit = s.get("profit_percent", 0)
+                s_win = "勝" if s.get("win_loss") else "敗"
+                s_exit = s.get("exit_type", "")
+                shadow_summary_list.append(f"{s_type}: {s_win} / 損益率:{s_profit}% / 決済:{s_exit}")
+            shadow_report_str = "\n".join(shadow_summary_list) if shadow_summary_list else "データなし"
+
+            return regime, pf, action, total_profit_str, win_rate_str, total_trades_str, max_dd_str, recent_trades_str, shadow_report_str
+
+    except Exception as e:
+        print(f"⚠️ 資産OSデータの取得をフォールバック回避しました: {e}")
+        print(traceback.format_exc())
+    return "Active", "1.00", "Running", "0", "0.0", "0", "0.0", "データなし", "データなし"
             
             # 直近のアクション取得
             action = "Standby"
@@ -134,9 +195,16 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
     {news_text}
 
     【まごころ資産OSの本日のデータ】
-    ・現在の市場レジーム判定: {os_regime} （日本語訳: {os_regime_ja}）
-    ・システムPF（プロフィットファクター）: {os_pf}
-    ・現在の行動ステータス: {os_action}
+    【まごころ資産OSの本日のデータ】
+    ・レジーム: {os_regime}
+    ・PF: {os_pf}
+    ・アクション: {os_action}
+    ・通算損益: {os_total_profit}円
+    ・勝率: {os_win_rate}%
+    ・取引回数: {os_total_trades}回
+    ・最大DD: {os_max_dd}%
+    ・シャドーAIレポート: {shadow_report}
+    ・直近5件の取引履歴: {recent_trades}
 
     【執筆の絶対ルール】
     1. 【テーマの棲み分け（重複回避）】
@@ -302,7 +370,7 @@ def main():
     os.makedirs(BOOKS_DIR, exist_ok=True)
     
     # 資産OSデータのFetch
-    os_regime, os_pf, os_action, os_total_profit, os_win_rate, os_total_trades, os_max_dd = fetch_os_data()
+    os_regime, os_pf, os_action, os_total_profit, os_win_rate, os_total_trades, os_max_dd, recent_trades, shadow_report = fetch_os_data()
     news_text = fetch_crypto_news()
     print(f"📰 取得したニュース: {news_text[:50]}...")
 

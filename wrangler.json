@@ -1,1 +1,10 @@
-
+{
+  "name": "asset-os-connection",
+  "main": "index.html",
+  "compatibility_date": "2024-01-01",
+  "workers_dev": false,
+  "route": {
+    "pattern": "ai-market.pray-power-is-god-and-cocoro.com/asset-os-connection/*",
+    "zone_name": "pray-power-is-god-and-cocoro.com"
+  }
+}

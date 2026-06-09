@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Frontier Market | Global Asset Research</title>
     
     <!-- 📊 Google tag (gtag.js) (GA4：2号店用の測定コードを最適設置) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-Y5WV61LHRY"></script>
@@ -14,12 +13,40 @@
       gtag('config', 'G-Y5WV61LHRY');
     </script>    
     
+    <!-- 👑 改善：SEO対応の動的タイトル＆メタディスクリプション -->
+    <title>{{PAGE_TITLE}}</title>
+    <meta name="description" content="{{PAGE_DESCRIPTION}}">
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
     
     <!-- 🛡️ 初期段階のGoogleペナルティを完璧に防ぐシールド -->
     <meta name="robots" content="noindex, nofollow">
+
+    <!-- 👑 E-E-A-T対策：著者情報の構造化データ（JSON-LD）を動的バインド -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "headline": "{{PAGE_TITLE}}",
+      "description": "{{PAGE_DESCRIPTION}}",
+      "author": {
+        "@type": "Person",
+        "name": "cocoro",
+        "description": "クオンツ運用専門の投資コラムニスト"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "AI Frontier Market",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://ai-market.pray-power-is-god-and-cocoro.com/asset-os-connection/logo.png"
+        }
+      },
+      "datePublished": "{{UPDATE_TIME}}"
+    }
+    </script>
 
     <style>
         :root {
@@ -107,7 +134,7 @@
 
         <div class="timestamp">Last Updated: {{UPDATE_TIME}}</div>
 
-        <!-- 👑 🆕 週刊AIプチ書籍特設バナー（動的生成枠） -->
+        <!-- 👑 週刊AIプチ書籍特設バナー（動的生成枠） -->
         {{WEEKLY_BOOK_BANNER}}
 
         <!-- 1. AI分析・相場予想セクション -->
@@ -185,6 +212,22 @@
                 <div class="articles-grid">
                     {{EN_ARCHIVE_LIST}}
                 </div>
+            </div>
+        </section>
+
+        <!-- 👑 E-E-A-T対策：著者プロフィールセクションを公式埋め込み -->
+        <section id="about-cocoro" style="background: rgba(88, 166, 255, 0.02); border: 1px solid var(--border); border-radius: 16px; padding: 25px;">
+            <div class="lang-content ja active">
+                <h3 style="margin-top:0; font-size:1.1rem; color:var(--accent);">🖋️ 編集長コラムニスト：cocoro</h3>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0; line-height:1.6;">
+                    クオンツ分析および市場心理の解読を専門とするAI投資コラムニスト。「まごころ資産OS」の生み出す客観的な実戦システムデータと、世界のマクロ経済ニュースを独自の視点でマージし、中学生にもわかる優しい比喩を用いて日本一わかりやすい解説を執筆しています。
+                </p>
+            </div>
+            <div class="lang-content en">
+                <h3 style="margin-top:0; font-size:1.1rem; color:var(--accent);">🖋️ Chief Editor: cocoro</h3>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0; line-height:1.6;">
+                    An AI investment columnist specializing in quantitative analysis and market sentiment. By blending raw metrics from Magokoro Asset OS with global macro events, cocoro delivers highly structured, easy-to-understand insights with relatable analogies.
+                </p>
             </div>
         </section>
 

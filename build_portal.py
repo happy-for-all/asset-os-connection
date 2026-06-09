@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+import traceback
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
@@ -12,8 +13,15 @@ JST = timezone(timedelta(hours=9))
 DATA_DIR = "data"
 ARTICLES_DIR = "dist/asset-os-connection/articles"
 BOOKS_DIR = "dist/asset-os-connection/books"
-MAX_HISTORY_LIMIT = 10   # 容量パンク防止用の記事ローテーション上限
+MAX_HISTORY_LIMIT = 10   # 1GBを圧迫しないための記事上限
 MAX_BOOKS_LIMIT = 3      # 保存する電子書籍の最大数
+
+# 👑 改善：CoinDeskが詰まっても絶対に止まらない、マルチRSS自動フォールバック監視網
+RSS_SOURCES = [
+    "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "https://cointelegraph.com/rss",
+    "https://decrypt.co/feed"
+]
 
 def fetch_os_data():
     """資産OSのtrade_log.jsonをサーバーサイドから安全にFetch（CORS制限なし）"""
@@ -51,19 +59,21 @@ def os_regime_to_ja(regime):
     return mapping.get(regime, "シグナル待機中")
 
 def fetch_crypto_news():
-    """暗号資産メディアのRSSから最新ニュースを取得"""
-    rss_url = "https://www.coindesk.com/arc/outboundfeeds/rss/"
-    try:
-        req = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            root = ET.fromstring(response.read())
-            item = root.find('.//item')
-            if item is not None:
-                title = item.find('title').text
-                desc = item.find('description').text
-                return f"【ニュース詳細】{title} - {desc}"
-    except Exception as e:
-        print(f"ニュース取得エラー: {e}")
+    """複数のRSSソースを順次巡回し、最新の海外ニュースを取得"""
+    for rss_url in RSS_SOURCES:
+        try:
+            req = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                root = ET.fromstring(response.read())
+                item = root.find('.//item')
+                if item is not None:
+                    title = item.find('title').text
+                    desc_el = item.find('description')
+                    desc = desc_el.text if desc_el is not None else ""
+                    print(f"📰 RSSソース取得成功: {rss_url}")
+                    return f"【ニュース詳細】{title} - {desc}"
+        except Exception as e:
+            print(f"⚠️ RSSフォールバック警告: {rss_url} → {e}")
     return "本日は大きなニュースの更新はありませんが、暗号資産市場は常に変動しています。"
 
 def generate_ai_content(news_text, os_regime, os_pf, os_action):
@@ -74,7 +84,6 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
         return None
 
     client = genai.Client(api_key=api_key)
-    
     os_regime_ja = os_regime_to_ja(os_regime)
     
     prompt = f"""
@@ -127,7 +136,7 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
     }}
     """
 
-    # 🛡️ 混雑をすり抜けるための、自動切り替え ＆ 指数バックオフ（最大5回リトライ）
+    # 👑 改善：モデル名を最新2026年GAモデルID "gemini-2.5-flash" に修正
     models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
     
     for model_name in models_to_try:
@@ -144,14 +153,16 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
                     )
                 )
                 
-                # 👑 デグレ徹底修復：Geminiの出力から飾り枠「```json ... ```」を取り除く安全ガード
+                # 👑 デグレ徹底修復：マークダウンの飾り枠「```json ... ```」を安全に剥ぎ取る正規表現
                 raw_text = response.text.strip()
                 match = re.search(r"(\{.*\})", raw_text, re.DOTALL)
                 clean_text = match.group(1) if match else raw_text.replace("```json", "").replace("```", "")
                 
                 return json.loads(clean_text.strip())
             except Exception as e:
+                # 👑 改善：AIが失敗した理由をトレースバックで詳細に出力し、原因を一目瞭然にする
                 print(f"⚠️ {model_name} エラー (試行 {attempt + 1}): {e}")
+                print(traceback.format_exc())
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 10
                     print(f"⏳ Googleサーバー混雑のため、{wait_time}秒後に再トライします...")
@@ -197,7 +208,7 @@ def generate_weekly_book(materials_text, os_regime, os_pf):
     try:
         print("📚 AIに日英プチ書籍を執筆させています（1万字規模のビッグデータ錬成中）...")
         response = client.models.generate_content(
-            model="gemini-1.5-flash",  # 長文執筆が非常に得意で、混雑しにくい安定の1.5を特別採用
+            model="gemini-1.5-flash",  # 長文執筆が得意な1.5を特別採用
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -210,6 +221,7 @@ def generate_weekly_book(materials_text, os_regime, os_pf):
         return json.loads(clean_text.strip())
     except Exception as e:
         print(f"⚠️ 電子書籍の執筆失敗: {e}")
+        print(traceback.format_exc())
     return None
 
 def main():
@@ -220,44 +232,83 @@ def main():
     
     # 資産OSデータのFetch
     os_regime, os_pf, os_action = fetch_os_data()
-
     news_text = fetch_crypto_news()
     print(f"📰 取得したニュース: {news_text[:50]}...")
 
+    ai_data_success = True
     ai_data = generate_ai_content(news_text, os_regime, os_pf, os_action)
     
-    # クラッシュ完全防止機能
+    # 👑 究極のクラッシュ完全防止＆画面表示維持（AIが混んでいる時は、エラー画面を出さずに前回の最新コラムを維持してダウンを防ぐ）
+    all_json_files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("article-") and f.endswith(".json")], reverse=True)
+    
     if not ai_data:
-        print("⚠️ AIデータの生成に失敗しました。安全なデフォルトデータで代用し、システムを止めずに進行します。")
-        ai_data = {
-            "ja_analysis": "<p>現在、AIが詳細な相場分析を準備中です。次回の更新をお待ちください。</p>",
-            "en_analysis": "<p>AI is currently preparing a detailed market analysis. Please wait for the next update.</p>",
-            "ja_blog_title": "【お知らせ】次回のマーケットレポート準備中",
-            "en_blog_title": "[Notice] Preparing Next Market Report",
-            "ja_blog_html": "<p>Google AIサーバーの一時的な混雑により、最新のブログ記事を準備中です。数時間以内に自動復旧しますので、少々お待ちください。</p>",
-            "en_blog_html": "<p>Due to temporary high demand on Google AI servers, the latest blog post is being prepared. It will automatically recover within a few hours.</p>"
-        }
+        ai_data_success = False
+        print("⚠️ AIデータの生成に失敗しました。最新の過去キャッシュを探して表示維持を試みます。")
+        
+        if all_json_files:
+            latest_cache_file = os.path.join(DATA_DIR, all_json_files[0])
+            try:
+                with open(latest_cache_file, "r", encoding="utf-8") as f:
+                    cached_art = json.load(f)
+                ai_data = {
+                    "ja_analysis": cached_art["ja_analysis"],
+                    "en_analysis": cached_art["en_analysis"],
+                    "ja_blog_title": cached_art["ja_blog_title"],
+                    "en_blog_title": cached_art["en_blog_title"],
+                    "ja_blog_html": cached_art["ja_blog_html"],
+                    "en_blog_html": cached_art["en_blog_html"]
+                }
+                print("♻️ キャッシュデータの読込に成功しました。古いエラー記事での汚染を防ぎ、最新の表示を完全に維持します。")
+            except Exception as e:
+                print(f"キャッシュの読込エラー: {e}")
+                
+        # 究極のバックアップ
+        if not ai_data:
+            ai_data = {
+                "ja_analysis": "<p>現在、AIが詳細な相場分析を準備中です。次回の更新をお待ちください。</p>",
+                "en_analysis": "<p>AI is currently preparing a detailed market analysis. Please wait for the next update.</p>",
+                "ja_blog_title": "【お知らせ】次回のマーケットレポート準備中",
+                "en_blog_title": "[Notice] Preparing Next Market Report",
+                "ja_blog_html": "<p>Google AIサーバーの一時的な混雑により、最新のブログ記事を準備中です。数時間以内に自動復旧しますので、少々お待ちください。</p>",
+                "en_blog_html": "<p>Due to temporary high demand on Google AI servers, the latest blog post is being prepared. It will automatically recover within a few hours.</p>"
+            }
 
-    # 最新記事をJSON履歴に保存する
-    timestamp_slug = datetime.now(JST).strftime("%Y%m%d-%H%M%S")
-    new_article_file = os.path.join(DATA_DIR, f"article-{timestamp_slug}.json")
-    
-    article_record = {
-        "time": datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"),
-        "os_regime": os_regime,
-        "os_pf": os_pf,
-        "os_action": os_action,
-        "ja_analysis": ai_data["ja_analysis"],
-        "en_analysis": ai_data["en_analysis"],
-        "ja_blog_title": ai_data["ja_blog_title"],
-        "en_blog_title": ai_data["en_blog_title"],
-        "ja_blog_html": ai_data["ja_blog_html"],
-        "en_blog_html": ai_data["en_blog_html"],
-        "slug": f"article-{timestamp_slug}"
-    }
-    
-    with open(new_article_file, "w", encoding="utf-8") as f:
-        json.dump(article_record, f, ensure_ascii=False, indent=2)
+    # 👑 生成に成功した時だけ新規JSONに書き込む（これで「準備中」ログがアーカイブに交じるデグレを100%防ぐ！）
+    latest_art = None
+    if ai_data_success:
+        timestamp_slug = datetime.now(JST).strftime("%Y%m%d-%H%M%S")
+        new_article_file = os.path.join(DATA_DIR, f"article-{timestamp_slug}.json")
+        
+        latest_art = {
+            "time": datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"),
+            "os_regime": os_regime,
+            "os_pf": os_pf,
+            "os_action": os_action,
+            "ja_analysis": ai_data["ja_analysis"],
+            "en_analysis": ai_data["en_analysis"],
+            "ja_blog_title": ai_data["ja_blog_title"],
+            "en_blog_title": ai_data["en_blog_title"],
+            "ja_blog_html": ai_data["ja_blog_html"],
+            "en_blog_html": ai_data["en_blog_html"],
+            "slug": f"article-{timestamp_slug}"
+        }
+        
+        with open(new_article_file, "w", encoding="utf-8") as f:
+            json.dump(latest_art, f, ensure_ascii=False, indent=2)
+    else:
+        # 失敗時は、キャッシュの一番新しいものを今回の最新画面としてバインドする
+        if all_json_files:
+            latest_cache_file = os.path.join(DATA_DIR, all_json_files[0])
+            with open(latest_cache_file, "r", encoding="utf-8") as f:
+                latest_art = json.load(f)
+        else:
+            latest_art = {
+                "time": datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"),
+                "os_regime": os_regime,
+                "os_pf": os_pf,
+                "os_action": os_action,
+                **ai_data
+            }
 
     # ローテーション機能（最大10件）
     all_json_files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("article-") and f.endswith(".json")], reverse=True)
@@ -272,7 +323,7 @@ def main():
             if os.path.exists(html_path):
                 os.remove(html_path)
 
-    # 過去ログからアーカイブ記事一覧のHTMLをビルドする
+    # 過去ログからアーカイブ記事一覧のHTMLをビルド
     active_json_files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("article-") and f.endswith(".json")], reverse=True)
     
     ja_archive_html = ""
@@ -314,31 +365,25 @@ def main():
         </div>
         """
 
-    # 👑 【電子書籍ビルド機能】5件以上の分析データが溜まったら、電子書籍を自動執筆
-    weekly_book_banner_html = ""
+    # 👑 【電子書籍ビルド機能（週次重複生成防止 ＆ 最新自動バナー）】
+    # 今週の週番号を取得
+    current_week_slug = f"weekly-market-book-{datetime.now(JST).strftime('%Y-%m-w%W')}"
+    book_path = os.path.join(BOOKS_DIR, f"{current_week_slug}.html")
     
-    if len(active_json_files) >= 5:
+    # 記事が5件以上あり、かつ今週の電子書籍がまだ生成されていない時だけ生成
+    if len(active_json_files) >= 5 and not os.path.exists(book_path):
         materials_text = "\n\n---\n\n".join(combined_materials[:5])
         book_data = generate_weekly_book(materials_text, os_regime, os_pf)
         
         if book_data:
-            book_slug = f"weekly-market-book-{datetime.now(JST).strftime('%Y-%m-w%W')}"
-            
-            # 電子書籍アーカイブのローテーション（最大3冊保存、パンク絶対防止）
-            all_book_files = sorted([f for f in os.listdir(BOOKS_DIR) if f.startswith("weekly-market-book-") and f.endswith(".html")], reverse=True)
-            if len(all_book_files) > MAX_BOOKS_LIMIT:
-                print(f"🗑️ 電子書籍の履歴制限({MAX_BOOKS_LIMIT}冊)を超過したため、古い書籍をパージします。")
-                for old_book in all_book_files[MAX_BOOKS_LIMIT:]:
-                    ob_path = os.path.join(BOOKS_DIR, old_book)
-                    if os.path.exists(ob_path):
-                        os.remove(ob_path)
-            
             # template.html の読み込み
             with open("template.html", "r", encoding="utf-8") as f:
                 template_content = f.read()
             
             # 書籍HTMLのコンパイル
             book_html = template_content
+            book_html = book_html.replace("{{PAGE_TITLE}}", book_data["ja_book_title"] + " | AI Frontier Market")
+            book_html = book_html.replace("{{PAGE_DESCRIPTION}}", "今週配信された資産データと相場分析をAIが統合したクオンツ投資解剖書です。")
             book_html = book_html.replace("{{UPDATE_TIME}}", datetime.now(JST).strftime("%Y-%m-%d"))
             book_html = book_html.replace("{{JA_ANALYSIS}}", book_data["ja_book_html"])
             book_html = book_html.replace("{{EN_ANALYSIS}}", book_data["en_book_html"])
@@ -353,28 +398,46 @@ def main():
             book_html = book_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
             book_html = book_html.replace("{{WEEKLY_BOOK_BANNER}}", "") # 書籍画面自身にはバナーを出さない
             
-            with open(os.path.join(BOOKS_DIR, f"{book_slug}.html"), "w", encoding="utf-8") as f:
+            # 👑 書籍データの書き込み
+            with open(book_path, "w", encoding="utf-8") as f:
                 f.write(book_html)
-                
-            # トップページ用バナーHTMLの動的生成
+
+            # 👑 ローテーション書き込み後にパージを実行（順番バグの完全修正）
+            all_book_files = sorted([f for f in os.listdir(BOOKS_DIR) if f.startswith("weekly-market-book-") and f.endswith(".html")], reverse=True)
+            if len(all_book_files) > MAX_BOOKS_LIMIT:
+                print(f"🗑️ 電子書籍の履歴制限({MAX_BOOKS_LIMIT}冊)を超過したため、古い書籍をパージします。")
+                for old_book in all_book_files[MAX_BOOKS_LIMIT:]:
+                    ob_path = os.path.join(BOOKS_DIR, old_book)
+                    if os.path.exists(ob_path):
+                        os.remove(ob_path)
+    else:
+        if len(active_json_files) < 5:
+            print("📚 書籍生成スキップ: 記事数が5件未満です。")
+        else:
+            print("📚 書籍生成スキップ: 今週の電子書籍はすでに生成済みです。")
+
+    # 👑 動的バナー生成：今週新しく作ったかに関わらず、フォルダ内の最新書籍を自動検知してバナーを表示！
+    weekly_book_banner_html = ""
+    if os.path.exists(BOOKS_DIR):
+        existing_books = sorted([f for f in os.listdir(BOOKS_DIR) if f.startswith("weekly-market-book-") and f.endswith(".html")], reverse=True)
+        if existing_books:
+            latest_book_filename = existing_books[0]
             weekly_book_banner_html = f"""
             <section style="margin-bottom: 40px; background: linear-gradient(135deg, #0070f3, #3291ff); border: none; border-radius: 16px; padding: 30px; text-align: center; box-shadow: 0 8px 24px rgba(0, 112, 243, 0.25);">
                 <div class="lang-content ja active">
                     <span style="background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 800; color: #fff;">🆕 AI WEEKLY BOOK 配信中</span>
-                    <h2 style="font-size: 1.6rem; font-weight: 900; margin: 15px 0 10px; color: #fff; border:none; padding:0;">{book_data['ja_book_title']}</h2>
+                    <h2 style="font-size: 1.6rem; font-weight: 900; margin: 15px 0 10px; color: #fff; border:none; padding:0;">世界経済トレンド完全解剖書</h2>
                     <p style="font-size: 0.95rem; color: rgba(255,255,255,0.9); max-width: 500px; margin: 0 auto 20px;">今週配信された資産データと相場分析をAIが統合し、一冊のストーリーにまとめあげたクオンツ投資解剖書です。</p>
-                    <a href="/asset-os-connection/books/{book_slug}.html" style="background: #fff; color: #0070f3; padding: 12px 24px; border-radius: 999px; font-weight: 800; text-decoration: none; display: inline-block;">電子書籍を読む（無料） &rarr;</a>
+                    <a href="/asset-os-connection/books/{latest_book_filename}" style="background: #fff; color: #0070f3; padding: 12px 24px; border-radius: 999px; font-weight: 800; text-decoration: none; display: inline-block;">電子書籍を読む（無料） &rarr;</a>
                 </div>
                 <div class="lang-content en">
                     <span style="background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 800; color: #fff;">🆕 AI WEEKLY BOOK NOW ON SALE</span>
-                    <h2 style="font-size: 1.6rem; font-weight: 900; margin: 15px 0 10px; color: #fff; border:none; padding:0;">{book_data['en_book_title']}</h2>
+                    <h2 style="font-size: 1.6rem; font-weight: 900; margin: 15px 0 10px; color: #fff; border:none; padding:0;">Weekly Global Trend Analysis</h2>
                     <p style="font-size: 0.95rem; color: rgba(255,255,255,0.9); max-width: 500px; margin: 0 auto 20px;">An AI-synthesized weekly book integrating Magokoro OS metrics and global market trends into a single structured report.</p>
-                    <a href="/asset-os-connection/books/{book_slug}.html" style="background: #fff; color: #0070f3; padding: 12px 24px; border-radius: 999px; font-weight: 800; text-decoration: none; display: inline-block;">Read Free Book &rarr;</a>
+                    <a href="/asset-os-connection/books/{latest_book_filename}" style="background: #fff; color: #0070f3; padding: 12px 24px; border-radius: 999px; font-weight: 800; text-decoration: none; display: inline-block;">Read Free Book &rarr;</a>
                 </div>
             </section>
             """
-    else:
-        print("📚 書籍生成はスキップされました（データベース内の記事が5件未満のため、データが十分に蓄積された時点で自動的に書籍化プロセスが始動します）。")
 
     # template.html の読み込み
     try:
@@ -392,6 +455,8 @@ def main():
         a_slug = art["slug"]
         
         page_html = template_content
+        page_html = page_html.replace("{{PAGE_TITLE}}", art["ja_blog_title"] + " | AI Frontier Market")
+        page_html = page_html.replace("{{PAGE_DESCRIPTION}}", art["ja_analysis"][:120].replace('"', '&quot;'))
         page_html = page_html.replace("{{UPDATE_TIME}}", art["time"])
         page_html = page_html.replace("{{JA_ANALYSIS}}", art["ja_analysis"])
         page_html = page_html.replace("{{EN_ANALYSIS}}", art["en_analysis"])
@@ -404,15 +469,15 @@ def main():
         page_html = page_html.replace("{{OS_ACTION}}", art["os_action"])
         page_html = page_html.replace("{{JA_ARCHIVE_LIST}}", ja_archive_html)
         page_html = page_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
-        page_html = page_html.replace("{{WEEKLY_BOOK_BANNER}}", weekly_book_banner_html) # 個別記事にも本バナーを表示
+        page_html = page_html.replace("{{WEEKLY_BOOK_BANNER}}", weekly_book_banner_html)
         
         with open(os.path.join(ARTICLES_DIR, f"{a_slug}.html"), "w", encoding="utf-8") as f:
             f.write(page_html)
 
     # ② 最新コラムを載せた index.html（トップページ）のビルド
-    latest_art = article_record  # 今回生成した最新記事
-    
     index_html = template_content
+    index_html = index_html.replace("{{PAGE_TITLE}}", "AI Frontier Market | Global Asset Research")
+    index_html = index_html.replace("{{PAGE_DESCRIPTION}}", latest_art["ja_analysis"][:120].replace('"', '&quot;'))
     index_html = index_html.replace("{{UPDATE_TIME}}", latest_art["time"])
     index_html = index_html.replace("{{JA_ANALYSIS}}", latest_art["ja_analysis"])
     index_html = index_html.replace("{{EN_ANALYSIS}}", latest_art["en_analysis"])

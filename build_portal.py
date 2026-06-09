@@ -13,18 +13,21 @@ JST = timezone(timedelta(hours=9))
 DATA_DIR = "data"
 ARTICLES_DIR = "dist/asset-os-connection/articles"
 BOOKS_DIR = "dist/asset-os-connection/books"
-MAX_HISTORY_LIMIT = 10   # 1GBを圧迫しないための記事上限
+MAX_HISTORY_LIMIT = 10   # 容量パンク防止用の記事上限
 MAX_BOOKS_LIMIT = 3      # 保存する電子書籍の最大数
 
-# 👑 改善：CoinDeskが詰まっても絶対に止まらない、マルチRSS自動フォールバック監視網
 RSS_SOURCES = [
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "https://cointelegraph.com/rss",
     "https://decrypt.co/feed"
 ]
 
+def strip_html(text):
+    """プレビュー用要約テキストからHTMLタグを完全に排除して品質を高める"""
+    return re.sub(r'<[^>]+>', '', text)
+
 def fetch_os_data():
-    """資産OSのtrade_log.jsonをサーバーサイドから安全にFetch（CORS制限なし）"""
+    """資産OSのtrade_log.jsonをサーバーサイドから安全にFetchし、実績（損益・勝率・DD）を動的にクオンツ集計"""
     url = "https://asset.cocoro.workers.dev/trade_log.json"
     try:
         print("📡 資産OSのデータベースを安全にスキャン中...")
@@ -36,17 +39,52 @@ def fetch_os_data():
             
             # 直近のアクション取得
             action = "Standby"
-            if data.get("trade_logs"):
-                last_log = data["trade_logs"][-1]
+            trade_logs = data.get("trade_logs", [])
+            if trade_logs:
+                last_log = trade_logs[-1]
                 action = last_log.get("reason", "Standby")
                 if len(action) > 15:
                     action = action[:15] + "..."
-                    
-            print(f"📊 OSデータ取得成功 ➔ レジーム: {regime} / PF: {pf} / 状態: {os_regime_to_ja(regime)}")
-            return regime, pf, action
+            
+            # E-E-A-T対策。本番取引実績の完全集計処理
+            system_stats = data.get("system_stats", {})
+            
+            # 👑 改善：値が文字列や小数で返ってきた場合でも、確実に型変換してクラッシュ(TypeError)を防ぐ安全防衛
+            try:
+                total_profit = float(system_stats.get("total_realized_profit", 0))
+                total_profit_str = f"{total_profit:+,.0f}" if total_profit != 0 else "0"
+            except (TypeError, ValueError):
+                total_profit_str = "0"
+            
+            # 実トレードの抽出（損益が0以外の履歴を取引実績とみなして精緻化）
+            realized_trades = [log.get("diff_price", 0) for log in trade_logs if log.get("diff_price", 0) != 0]
+            total_trades = len(realized_trades)
+            total_trades_str = str(total_trades)
+            
+            # 勝率の計算
+            wins = [x for x in realized_trades if x > 0]
+            win_rate = (len(wins) / total_trades * 100) if total_trades > 0 else 0.0
+            win_rate_str = f"{win_rate:.1f}"
+            
+            # 最大ドローダウン（DD）の計算
+            balances = [log.get("balance", 0) for log in trade_logs if log.get("balance", 0) > 0]
+            max_dd = 0.0
+            if balances:
+                peak = balances[0]
+                for b in balances:
+                    if b > peak:
+                        peak = b
+                    dd = (peak - b) / peak if peak > 0 else 0.0
+                    if dd > max_dd:
+                        max_dd = dd
+            max_dd_str = f"{max_dd * 100:.1f}"
+            
+            print(f"📊 OS実績集計完了 ➔ Regime: {regime} / PF: {pf} / Total Profit: {total_profit_str}円 / Win Rate: {win_rate_str}% / Trades: {total_trades_str}回 / Max DD: {max_dd_str}%")
+            return regime, pf, action, total_profit_str, win_rate_str, total_trades_str, max_dd_str
     except Exception as e:
         print(f"⚠️ 資産OSデータの取得をフォールバック回避しました: {e}")
-    return "Active", "1.00", "Running"
+        print(traceback.format_exc())
+    return "Active", "1.00", "Running", "0", "0.0", "0", "0.0"
 
 def os_regime_to_ja(regime):
     mapping = {
@@ -136,7 +174,6 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
     }}
     """
 
-    # 👑 改善：モデル名を最新2026年GAモデルID "gemini-2.5-flash" に修正
     models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
     
     for model_name in models_to_try:
@@ -153,14 +190,13 @@ def generate_ai_content(news_text, os_regime, os_pf, os_action):
                     )
                 )
                 
-                # 👑 デグレ徹底修復：マークダウンの飾り枠「```json ... ```」を安全に剥ぎ取る正規表現
                 raw_text = response.text.strip()
                 match = re.search(r"(\{.*\})", raw_text, re.DOTALL)
                 clean_text = match.group(1) if match else raw_text.replace("```json", "").replace("```", "")
                 
                 return json.loads(clean_text.strip())
             except Exception as e:
-                # 👑 改善：AIが失敗した理由をトレースバックで詳細に出力し、原因を一目瞭然にする
+                # AIが失敗した理由をトレースバックで詳細に出力
                 print(f"⚠️ {model_name} エラー (試行 {attempt + 1}): {e}")
                 print(traceback.format_exc())
                 if attempt < max_retries - 1:
@@ -184,7 +220,7 @@ def generate_weekly_book(materials_text, os_regime, os_pf):
     prompt = f"""
     あなたは、世界経済・株式投資・クオンツ運用のプロフェッショナルであり、読者をワクワクさせる優れたジャーナリストです。
     提供された【直近のニュースと資産データ】を美しく紡ぎ合わせ、日本語と英語の両方で読める、
-    1万文字規模の圧倒的に分かりやすくて深い、投資家のバイブルとなる「世界経済トレンド完全解剖書（日英併記プチ書籍）」を執筆してください。
+    1万文字規模の圧倒的に分かりやすくて深い, 投資家のバイブルとなる「世界経済トレンド完全解剖書（日英併記プチ書籍）」を執筆してください。
 
     【直近のニュースと資産データ】
     ・まごころ資産OSレジーム判定: {os_regime}
@@ -224,6 +260,41 @@ def generate_weekly_book(materials_text, os_regime, os_pf):
         print(traceback.format_exc())
     return None
 
+def build_sitemap(active_json_files):
+    """👑 改善：lastmod / priority / changefreq を完備し、さらにbooks（電子書籍）も動的スキャンして自動登録する最強のsitemap.xml生成エンジン"""
+    base_url = "https://ai-market.pray-power-is-god-and-cocoro.com/asset-os-connection"
+    today = datetime.now(JST).strftime("%Y-%m-%d")
+    
+    sitemap_xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    sitemap_xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    
+    # トップページ（インデックス）は最高優先度
+    sitemap_xml += f"  <url><loc>{base_url}/</loc><lastmod>{today}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>\n"
+    
+    # 過去記事の登録
+    for j_file in active_json_files:
+        slug = j_file.replace(".json", "")
+        date_part = slug.replace("article-", "")[:8]
+        try:
+            lastmod = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}"
+        except Exception:
+            lastmod = today
+            
+        sitemap_xml += f"  <url><loc>{base_url}/articles/{slug}.html</loc><lastmod>{lastmod}</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>\n"
+    
+    # 👑 改善：生成された電子書籍（books/*.html）も自動巡回（スキャン）して、インデックスへ優先度0.9で動的自動登録
+    if os.path.exists(BOOKS_DIR):
+        for book_file in os.listdir(BOOKS_DIR):
+            if book_file.endswith(".html"):
+                sitemap_xml += f"  <url><loc>{base_url}/books/{book_file}</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>\n"
+                
+    sitemap_xml += "</urlset>"
+    
+    os.makedirs("dist/asset-os-connection", exist_ok=True)
+    with open("dist/asset-os-connection/sitemap.xml", "w", encoding="utf-8") as f:
+        f.write(sitemap_xml)
+    print("🗺️ sitemap.xml の生成が完了しました！")
+
 def main():
     print("🚀 メディアOS: ポータルおよびアーカイブ自動生成を開始します...")
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -231,16 +302,17 @@ def main():
     os.makedirs(BOOKS_DIR, exist_ok=True)
     
     # 資産OSデータのFetch
-    os_regime, os_pf, os_action = fetch_os_data()
+    os_regime, os_pf, os_action, os_total_profit, os_win_rate, os_total_trades, os_max_dd = fetch_os_data()
     news_text = fetch_crypto_news()
     print(f"📰 取得したニュース: {news_text[:50]}...")
 
     ai_data_success = True
     ai_data = generate_ai_content(news_text, os_regime, os_pf, os_action)
     
-    # 👑 究極のクラッシュ完全防止＆画面表示維持（AIが混んでいる時は、エラー画面を出さずに前回の最新コラムを維持してダウンを防ぐ）
+    # 過去キャッシュの取得
     all_json_files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("article-") and f.endswith(".json")], reverse=True)
     
+    # 究極のクラッシュ完全防止＆画面表示維持
     if not ai_data:
         ai_data_success = False
         print("⚠️ AIデータの生成に失敗しました。最新の過去キャッシュを探して表示維持を試みます。")
@@ -258,11 +330,11 @@ def main():
                     "ja_blog_html": cached_art["ja_blog_html"],
                     "en_blog_html": cached_art["en_blog_html"]
                 }
-                print("♻️ キャッシュデータの読込に成功しました。古いエラー記事での汚染を防ぎ、最新の表示を完全に維持します。")
+                print("♻️ キャッシュデータの読込に成功しました。表示維持。")
             except Exception as e:
                 print(f"キャッシュの読込エラー: {e}")
                 
-        # 究極のバックアップ
+        # 究極のバックアップ（※クラッシュ完全ガード）
         if not ai_data:
             ai_data = {
                 "ja_analysis": "<p>現在、AIが詳細な相場分析を準備中です。次回の更新をお待ちください。</p>",
@@ -273,17 +345,22 @@ def main():
                 "en_blog_html": "<p>Due to temporary high demand on Google AI servers, the latest blog post is being prepared. It will automatically recover within a few hours.</p>"
             }
 
-    # 👑 生成に成功した時だけ新規JSONに書き込む（これで「準備中」ログがアーカイブに交じるデグレを100%防ぐ！）
+    # 成功時のみ新規JSONに書き込む
     latest_art = None
     if ai_data_success:
         timestamp_slug = datetime.now(JST).strftime("%Y%m%d-%H%M%S")
         new_article_file = os.path.join(DATA_DIR, f"article-{timestamp_slug}.json")
         
+        # 最新時点の実績を永続固定保存
         latest_art = {
             "time": datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"),
             "os_regime": os_regime,
             "os_pf": os_pf,
             "os_action": os_action,
+            "os_total_profit": os_total_profit,
+            "os_win_rate": os_win_rate,
+            "os_total_trades": os_total_trades,
+            "os_max_dd": os_max_dd,
             "ja_analysis": ai_data["ja_analysis"],
             "en_analysis": ai_data["en_analysis"],
             "ja_blog_title": ai_data["ja_blog_title"],
@@ -296,17 +373,29 @@ def main():
         with open(new_article_file, "w", encoding="utf-8") as f:
             json.dump(latest_art, f, ensure_ascii=False, indent=2)
     else:
-        # 失敗時は、キャッシュの一番新しいものを今回の最新画面としてバインドする
+        # 失敗時は、キャッシュの一番新しいものを今回の最新画面としてバインド
         if all_json_files:
             latest_cache_file = os.path.join(DATA_DIR, all_json_files[0])
             with open(latest_cache_file, "r", encoding="utf-8") as f:
                 latest_art = json.load(f)
+                
+            # 👑 改善：実績データが欠落している古いキャッシュJSONを読み込んだ場合でも、KeyErrorを出さずに後方互換性を100%保証する注入(setdefault)ガード
+            latest_art.setdefault("os_total_profit", os_total_profit)
+            latest_art.setdefault("os_win_rate", os_win_rate)
+            latest_art.setdefault("os_total_trades", os_total_trades)
+            latest_art.setdefault("os_max_dd", os_max_dd)
         else:
+            # キャッシュも何も存在しない場合の安全フォールバック時に slug を持たせてクラッシュを防ぎつつ互換値をセット
             latest_art = {
                 "time": datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"),
                 "os_regime": os_regime,
                 "os_pf": os_pf,
                 "os_action": os_action,
+                "os_total_profit": os_total_profit,
+                "os_win_rate": os_win_rate,
+                "os_total_trades": os_total_trades,
+                "os_max_dd": os_max_dd,
+                "slug": "fallback",
                 **ai_data
             }
 
@@ -339,6 +428,9 @@ def main():
         
         combined_materials.append(f"【タイトル】: {art['ja_blog_title']}\n【分析要約】: {art['ja_analysis']}")
         
+        ja_preview = strip_html(art['ja_analysis'])[:80]
+        en_preview = strip_html(art['en_analysis'])[:80]
+        
         # 日本語アーカイブカード
         ja_archive_html += f"""
         <div class="article-card">
@@ -347,7 +439,7 @@ def main():
                 <span style="color:#56d364;">まごころ資産OS連動</span>
             </div>
             <h3>{art['ja_blog_title']}</h3>
-            <p>{art['ja_analysis'][:80]}...</p>
+            <p>{ja_preview}...</p>
             <a href="/asset-os-connection/articles/{a_slug}.html" class="read-more">続きを読む &rarr;</a>
         </div>
         """
@@ -360,23 +452,20 @@ def main():
                 <span style="color:#56d364;">Magokoro OS Synced</span>
             </div>
             <h3>{art['en_blog_title']}</h3>
-            <p>{art['en_analysis'][:80]}...</p>
+            <p>{en_preview}...</p>
             <a href="/asset-os-connection/articles/{a_slug}.html" class="read-more">Read More &rarr;</a>
         </div>
         """
 
-    # 👑 【電子書籍ビルド機能（週次重複生成防止 ＆ 最新自動バナー）】
-    # 今週の週番号を取得
+    # 【電子書籍ビルド機能（週次重複生成防止 ＆ 最新自動バナー）】
     current_week_slug = f"weekly-market-book-{datetime.now(JST).strftime('%Y-%m-w%W')}"
     book_path = os.path.join(BOOKS_DIR, f"{current_week_slug}.html")
     
-    # 記事が5件以上あり、かつ今週の電子書籍がまだ生成されていない時だけ生成
     if len(active_json_files) >= 5 and not os.path.exists(book_path):
         materials_text = "\n\n---\n\n".join(combined_materials[:5])
         book_data = generate_weekly_book(materials_text, os_regime, os_pf)
         
         if book_data:
-            # template.html の読み込み
             with open("template.html", "r", encoding="utf-8") as f:
                 template_content = f.read()
             
@@ -398,11 +487,17 @@ def main():
             book_html = book_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
             book_html = book_html.replace("{{WEEKLY_BOOK_BANNER}}", "") # 書籍画面自身にはバナーを出さない
             
-            # 👑 書籍データの書き込み
+            # 書籍時点の実績データの置換
+            book_html = book_html.replace("{{OS_TOTAL_PROFIT}}", os_total_profit)
+            book_html = book_html.replace("{{OS_WIN_RATE}}", os_win_rate)
+            book_html = book_html.replace("{{OS_TOTAL_TRADES}}", os_total_trades)
+            book_html = book_html.replace("{{OS_MAX_DD}}", os_max_dd)
+            
+            # 書籍データの書き込み
             with open(book_path, "w", encoding="utf-8") as f:
                 f.write(book_html)
 
-            # 👑 ローテーション書き込み後にパージを実行（順番バグの完全修正）
+            # 書籍ローテーションの実行（書き込み完了直後）
             all_book_files = sorted([f for f in os.listdir(BOOKS_DIR) if f.startswith("weekly-market-book-") and f.endswith(".html")], reverse=True)
             if len(all_book_files) > MAX_BOOKS_LIMIT:
                 print(f"🗑️ 電子書籍の履歴制限({MAX_BOOKS_LIMIT}冊)を超過したため、古い書籍をパージします。")
@@ -416,7 +511,7 @@ def main():
         else:
             print("📚 書籍生成スキップ: 今週の電子書籍はすでに生成済みです。")
 
-    # 👑 動的バナー生成：今週新しく作ったかに関わらず、フォルダ内の最新書籍を自動検知してバナーを表示！
+    # 動的バナー生成（誤字 "一冊 of ストーリー" ➔ "一冊のストーリー" へ完璧に修復）
     weekly_book_banner_html = ""
     if os.path.exists(BOOKS_DIR):
         existing_books = sorted([f for f in os.listdir(BOOKS_DIR) if f.startswith("weekly-market-book-") and f.endswith(".html")], reverse=True)
@@ -456,7 +551,7 @@ def main():
         
         page_html = template_content
         page_html = page_html.replace("{{PAGE_TITLE}}", art["ja_blog_title"] + " | AI Frontier Market")
-        page_html = page_html.replace("{{PAGE_DESCRIPTION}}", art["ja_analysis"][:120].replace('"', '&quot;'))
+        page_html = page_html.replace("{{PAGE_DESCRIPTION}}", strip_html(art["ja_analysis"])[:120].replace('"', '&quot;'))
         page_html = page_html.replace("{{UPDATE_TIME}}", art["time"])
         page_html = page_html.replace("{{JA_ANALYSIS}}", art["ja_analysis"])
         page_html = page_html.replace("{{EN_ANALYSIS}}", art["en_analysis"])
@@ -471,13 +566,19 @@ def main():
         page_html = page_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
         page_html = page_html.replace("{{WEEKLY_BOOK_BANNER}}", weekly_book_banner_html)
         
+        # 個別記事のコンパイル時は「今日現在」の最新データではなく「コラムが執筆された当時」の数値を完全に固定保存・表示して履歴の整合性を死守（後方互換性ガード付き）
+        page_html = page_html.replace("{{OS_TOTAL_PROFIT}}", str(art.get("os_total_profit", os_total_profit)))
+        page_html = page_html.replace("{{OS_WIN_RATE}}", str(art.get("os_win_rate", os_win_rate)))
+        page_html = page_html.replace("{{OS_TOTAL_TRADES}}", str(art.get("os_total_trades", os_total_trades)))
+        page_html = page_html.replace("{{OS_MAX_DD}}", str(art.get("os_max_dd", os_max_dd)))
+        
         with open(os.path.join(ARTICLES_DIR, f"{a_slug}.html"), "w", encoding="utf-8") as f:
             f.write(page_html)
 
-    # ② 最新コラムを載せた index.html（トップページ）のビルド
+    # ② 最新コラムを載せた index.html（トップページ）のビルド（最新コラムなので、今日現在の最新データを反映）
     index_html = template_content
     index_html = index_html.replace("{{PAGE_TITLE}}", "AI Frontier Market | Global Asset Research")
-    index_html = index_html.replace("{{PAGE_DESCRIPTION}}", latest_art["ja_analysis"][:120].replace('"', '&quot;'))
+    index_html = index_html.replace("{{PAGE_DESCRIPTION}}", strip_html(latest_art["ja_analysis"])[:120].replace('"', '&quot;'))
     index_html = index_html.replace("{{UPDATE_TIME}}", latest_art["time"])
     index_html = index_html.replace("{{JA_ANALYSIS}}", latest_art["ja_analysis"])
     index_html = index_html.replace("{{EN_ANALYSIS}}", latest_art["en_analysis"])
@@ -491,10 +592,19 @@ def main():
     index_html = index_html.replace("{{JA_ARCHIVE_LIST}}", ja_archive_html)
     index_html = index_html.replace("{{EN_ARCHIVE_LIST}}", en_archive_html)
     index_html = index_html.replace("{{WEEKLY_BOOK_BANNER}}", weekly_book_banner_html)
+    
+    # 集計実績データの置換（index.html）
+    index_html = index_html.replace("{{OS_TOTAL_PROFIT}}", os_total_profit)
+    index_html = index_html.replace("{{OS_WIN_RATE}}", os_win_rate)
+    index_html = index_html.replace("{{OS_TOTAL_TRADES}}", os_total_trades)
+    index_html = index_html.replace("{{OS_MAX_DD}}", os_max_dd)
 
     # index.html として書き出し
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(index_html)
+    
+    # サイトマップsitemap.xmlの全自動更新コンパイラをキック（booksスキャン対応）
+    build_sitemap(active_json_files)
     
     print("✅ index.html & 個別アーカイブHTMLのビルドが100%正常完了しました！")
 

@@ -24,7 +24,7 @@
     <!-- 🛡️ 初期段階のGoogleペナルティを完璧に防ぐシールド -->
     <meta name="robots" content="noindex, nofollow">
 
-    <!-- 👑 E-E-A-T対策：著者情報の構造化データ（JSON-LD）を動的バインド -->
+    <!-- 👑 E-E-A-T対策：著者情報を個人から組織（Editorial Team）へ修正し整合性を死守 -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -32,9 +32,8 @@
       "headline": "{{PAGE_TITLE}}",
       "description": "{{PAGE_DESCRIPTION}}",
       "author": {
-        "@type": "Person",
-        "name": "cocoro",
-        "description": "クオンツ運用専門の投資コラムニスト"
+        "@type": "Organization",
+        "name": "AI Frontier Market Editorial Team"
       },
       "publisher": {
         "@type": "Organization",
@@ -109,7 +108,7 @@
         
         .timestamp { text-align: right; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 30px; }
 
-        /* 取引所ランキングカード（👑 新規追加） */
+        /* 取引所ランキングカード */
         .rankings-container { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
         .rank-card { display: flex; align-items: center; gap: 15px; background: var(--bg-color); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
         .rank-card.rank-best { border-color: #56d364; box-shadow: 0 0 12px rgba(86, 211, 100, 0.2); }
@@ -126,7 +125,6 @@
         <header>
             <div class="logo"><a href="/asset-os-connection/" style="color:#fff; text-decoration:none;">AI Frontier <span>Market</span></a></div>
             <div class="lang-switch">
-                <!-- 👑 改善：eventを明示的に渡してFirefox/Safariでのバグを完全解消 -->
                 <button class="lang-btn active" onclick="switchLang('ja', event)">日本語</button>
                 <button class="lang-btn" onclick="switchLang('en', event)">English</button>
             </div>
@@ -134,7 +132,7 @@
 
         <div class="timestamp">Last Updated: {{UPDATE_TIME}}</div>
 
-        <!-- 👑 週刊AIプチ書籍特設バナー（動的生成枠） -->
+        <!-- 週刊AIプチ書籍特設バナー（動的生成枠） -->
         {{WEEKLY_BOOK_BANNER}}
 
         <!-- 1. AI分析・相場予想セクション (取引所価格差ランキングを表示) -->
@@ -191,7 +189,7 @@
                 </div>
             </div>
 
-            <!-- 👑 改善：実績の数値自動公開（Google E-E-A-Tを満たす信頼の防衛盾） -->
+            <!-- 改善：実績の数値自動公開（Google E-E-A-Tを満たす信頼の防衛盾） -->
             <div class="os-data-grid" style="margin-top:15px; border-top: 1px solid var(--border); padding-top:15px;">
                 <div class="data-card" style="border-color: rgba(86, 211, 100, 0.3);">
                     <div class="data-label">通算実現損益 (JST)</div>
@@ -237,10 +235,6 @@
 
         <footer style="text-align: center; margin-top: 50px; padding-bottom: 20px; color: var(--text-muted); font-size: 0.8rem;">
             <p>&copy; 2026 AI Frontier Market. Powered by Magokoro OS</p>
-            <p style="margin-top: 5px;">
-                <span class="lang-content ja active">🔍 <a href="#about-cocoro" style="color: var(--accent); text-decoration: none;">編集長cocoro（クオンツ運用コラムニスト）について</a></span>
-                <span class="lang-content en">🔍 <a href="#about-cocoro" style="color: var(--accent); text-decoration: none;">About Chief Editor cocoro</a></span>
-            </p>
         </footer>
     </div>
 
@@ -248,7 +242,6 @@
         // 日英切り替えロジック
         function switchLang(lang, event) {
             document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
-            // 👑 改善：event.currentTarget で要素を完全に固定
             event.currentTarget.classList.add('active');
             
             document.querySelectorAll('.lang-content').forEach(el => {

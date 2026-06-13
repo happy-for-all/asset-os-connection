@@ -2,12 +2,13 @@ name: Global Media OS Builder
 
 on:
   schedule:
-    - cron: '0 18 * * *'  # 毎日 日本時間 深夜3時に自動実行
+    - cron: '17 * * * *'  # 毎時17分に自動実行（1時間おき・混雑回避の奇数分）
   workflow_dispatch:      # 手動実行ボタン
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write     # 過去のキャッシュデータをGitHubリポジトリへ安全に自動コミットするため
     
@@ -23,34 +24,28 @@ jobs:
       - name: 必要なパッケージのインストール
         run: |
           python -m pip install --upgrade pip
-          pip install google-genai
+          # AIパッケージ(google-genai)を削除し、標準ライブラリのみで動作させます
 
-      - name: メディアポータルの自動生成 (AI執筆 & 資産OSデータ融合)
-        env:
-          GEMINI_API_KEY_MEDIA: ${{ secrets.GEMINI_API_KEY_MEDIA }}
+      - name: 取引所価格チェッカーの自動生成
         run: python build_portal.py
 
       - name: 過去10件のキャッシュデータをGitHubリポジトリへ安全に自動保存(Commit)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # data/ フォルダ内のJSONだけをキャッシュ保存（1回あたり数KBなので1GBを圧迫しません）
           git add data/ || true
           git diff --staged --quiet || git commit -m "🤖 Auto: キャッシュデータベースの自動更新"
           git push || echo "⚠️ 保存競合が発生したためスキップし、デプロイを優先します。"
 
       - name: Cloudflare製動的ルーティングのための準備 (distフォルダ化)
         run: |
-          # CFが探しに行けるように、URLと同じ名前のフォルダを作り、生成された最新のindex.htmlだけをその中に入れる
           mkdir -p dist/asset-os-connection
           cp index.html dist/asset-os-connection/
-          # 過去の個別記事HTMLおよび書籍HTMLはすでにPython側で直接格納済みのため不要なコピー処理はすべて排除
 
       - name: Cloudflare Workers へ安全にデプロイ
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          # ユーザーの用意した wrangler.json を使いつつ、dist フォルダの中身(assets)としてデプロイするよう動的修正
           cat wrangler.json | jq '. + {assets: {"directory": "./dist"}}' > wrangler_temp.json
           mv wrangler_temp.json wrangler.json
           npx wrangler deploy

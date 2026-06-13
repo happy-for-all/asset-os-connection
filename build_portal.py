@@ -1,6 +1,5 @@
 import os
 import json
-import traceback
 import urllib.request
 from datetime import datetime, timezone, timedelta
 

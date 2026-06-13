@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -109,6 +108,17 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
         .timestamp { text-align: right; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 30px; }
+
+        /* 取引所ランキングカード（👑 新規追加） */
+        .rankings-container { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+        .rank-card { display: flex; align-items: center; gap: 15px; background: var(--bg-color); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+        .rank-card.rank-best { border-color: #56d364; box-shadow: 0 0 12px rgba(86, 211, 100, 0.2); }
+        .rank-medal { font-size: 1.8rem; min-width: 40px; }
+        .rank-name { font-weight: 800; font-size: 1rem; min-width: 120px; }
+        .rank-price { font-size: 1.1rem; font-weight: 700; flex: 1; }
+        .rank-label { color: #56d364; font-size: 0.8rem; font-weight: 800; }
+        .rank-btn { background: var(--accent); color: #fff; padding: 8px 16px; border-radius: 20px; text-decoration: none; font-weight: 700; font-size: 0.85rem; white-space: nowrap; }
+        .rank-btn:hover { opacity: 0.85; }
     </style>
 </head>
 <body>
@@ -139,14 +149,14 @@
         <!-- 👑 週刊AIプチ書籍特設バナー（動的生成枠） -->
         {{WEEKLY_BOOK_BANNER}}
 
-        <!-- 1. AI分析・相場予想セクション -->
+        <!-- 1. AI分析・相場予想セクション (取引所価格差ランキングを表示) -->
         <section>
             <div class="lang-content ja active">
-                <h2>📊 今週のクオンツ分析と市場展望</h2>
+                <h2>📊 取引所価格チェッカー</h2>
                 {{JA_ANALYSIS}}
             </div>
             <div class="lang-content en">
-                <h2>📊 Quant Market Analysis & Outlook</h2>
+                <h2>📊 Exchange Price Checker</h2>
                 {{EN_ANALYSIS}}
             </div>
         </section>
@@ -158,15 +168,15 @@
             <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
         </div>
 
-        <!-- 2. AI自動執筆ブログセクション -->
+        <!-- 2. AI自動執筆ブログセクション (速報記事を表示) -->
         <section>
             <div class="lang-content ja active">
-                <h2>📝 最新コラム：編集長cocoroの眼</h2>
+                <h2>📝 速報レポート</h2>
                 <div class="post-title">{{JA_BLOG_TITLE}}</div>
                 <div style="margin-top:20px;">{{JA_BLOG_HTML}}</div>
             </div>
             <div class="lang-content en">
-                <h2>📝 Quant Insight Blog</h2>
+                <h2>📝 Breaking Report</h2>
                 <div class="post-title">{{EN_BLOG_TITLE}}</div>
                 <div style="margin-top:20px;">{{EN_BLOG_HTML}}</div>
             </div>
@@ -242,19 +252,19 @@
             <div class="lang-content ja active">
                 <h3 style="margin-top:0; font-size:1.1rem; color:var(--accent);">🖋️ 編集長コラムニスト：cocoro</h3>
                 <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0; line-height:1.6;">
-                    クオンツ分析および市場心理の解読を専門とするAI投資コラムニスト。「まごころ資産OS」の生み出す客観的な実戦システムデータと、世界のマクロ経済ニュースを独自の視点でマージし、中学生にもわかる優しい比喩を用いて日本一わかりやすい解説を執筆しています。
+                    クオンツ分析および市場心理の解読を専門とするコラムニスト。「まごころ資産OS」の生み出す客観的な実戦システムデータと、世界のマクロ経済ニュースを独自の視点でマージし、中学生にもわかる優しい比喩を用いて日本一わかりやすい解説を執筆しています。
                 </p>
             </div>
             <div class="lang-content en">
                 <h3 style="margin-top:0; font-size:1.1rem; color:var(--accent);">🖋️ Chief Editor: cocoro</h3>
                 <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0; line-height:1.6;">
-                    An AI investment columnist specializing in quantitative analysis and market sentiment. By blending raw metrics from Magokoro Asset OS with global macro events, cocoro delivers highly structured, easy-to-understand insights with relatable analogies.
+                    An investment columnist specializing in quantitative analysis and market sentiment. By blending raw metrics from Magokoro Asset OS with global macro events, cocoro delivers highly structured, easy-to-understand insights with relatable analogies.
                 </p>
             </div>
         </section>
 
         <footer style="text-align: center; margin-top: 50px; padding-bottom: 20px; color: var(--text-muted); font-size: 0.8rem;">
-            <p>&copy; 2026 AI Frontier Market. Powered by Magokoro OS & Gemini 2.5</p>
+            <p>&copy; 2026 AI Frontier Market. Powered by Magokoro OS</p>
             <p style="margin-top: 5px;">
                 <span class="lang-content ja active">🔍 <a href="#about-cocoro" style="color: var(--accent); text-decoration: none;">編集長cocoro（クオンツ運用コラムニスト）について</a></span>
                 <span class="lang-content en">🔍 <a href="#about-cocoro" style="color: var(--accent); text-decoration: none;">About Chief Editor cocoro</a></span>
